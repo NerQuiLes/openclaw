@@ -1,9 +1,9 @@
 import type { WebClient as SlackWebClient } from "@slack/web-api";
-import { normalizeHostname } from "../../infra/net/hostname.js";
 import type { FetchLike } from "../../media/fetch.js";
+import type { SlackAttachment, SlackFile } from "../types.js";
+import { normalizeHostname } from "../../infra/net/hostname.js";
 import { fetchRemoteMedia } from "../../media/fetch.js";
 import { saveMediaBuffer } from "../../media/store.js";
-import type { SlackAttachment, SlackFile } from "../types.js";
 
 function isSlackHostname(hostname: string): boolean {
   const normalized = normalizeHostname(hostname);
@@ -477,6 +477,86 @@ export async function resolveSlackThreadHistory(params: {
 
     return retained.map((msg) => ({
       // For file-only messages, create a placeholder showing attached filenames
+      text: msg.text?.trim()
+        ? msg.text
+        : `[attached: ${msg.files?.map((f) => f.name ?? "file").join(", ")}]`,
+      userId: msg.user,
+      botId: msg.bot_id,
+      ts: msg.ts,
+      files: msg.files,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+type SlackHistoryPageMessage = {
+  text?: string;
+  user?: string;
+  bot_id?: string;
+  ts?: string;
+  files?: SlackFile[];
+};
+
+type SlackHistoryPage = {
+  messages?: SlackHistoryPageMessage[];
+  response_metadata?: { next_cursor?: string };
+};
+
+/**
+ * Fetches the most recent messages in a Slack DM (or channel) excluding the current message.
+ * Used to populate DM context when starting or continuing a DM session so the agent
+ * has conversation history even when the session store is empty (e.g. first message or after restart).
+ *
+ * Returns messages in chronological order (oldest first) for display as conversation history.
+ */
+export async function resolveSlackDmHistory(params: {
+  channelId: string;
+  client: SlackWebClient;
+  currentMessageTs?: string;
+  limit?: number;
+}): Promise<SlackThreadMessage[]> {
+  const maxMessages = params.limit ?? 20;
+  if (!Number.isFinite(maxMessages) || maxMessages <= 0) {
+    return [];
+  }
+
+  const fetchLimit = 200;
+  const collected: SlackHistoryPageMessage[] = [];
+  let cursor: string | undefined;
+
+  try {
+    do {
+      const response = (await params.client.conversations.history({
+        channel: params.channelId,
+        limit: fetchLimit,
+        ...(cursor ? { cursor } : {}),
+      })) as SlackHistoryPage;
+
+      for (const msg of response.messages ?? []) {
+        if (!msg.text?.trim() && !msg.files?.length) {
+          continue;
+        }
+        if (params.currentMessageTs && msg.ts === params.currentMessageTs) {
+          continue;
+        }
+        collected.push(msg);
+        if (collected.length >= maxMessages) {
+          break;
+        }
+      }
+
+      if (collected.length >= maxMessages) {
+        break;
+      }
+      const next = response.response_metadata?.next_cursor;
+      cursor = typeof next === "string" && next.trim().length > 0 ? next.trim() : undefined;
+    } while (cursor);
+
+    const retained = collected.slice(0, maxMessages);
+    const chronological = retained.toReversed();
+
+    return chronological.map((msg) => ({
       text: msg.text?.trim()
         ? msg.text
         : `[attached: ${msg.files?.map((f) => f.name ?? "file").join(", ")}]`,

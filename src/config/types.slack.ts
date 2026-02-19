@@ -117,6 +117,11 @@ export type SlackAccountConfig = {
   historyLimit?: number;
   /** Max DM turns to keep as history context. */
   dmHistoryLimit?: number;
+  /**
+   * Max messages to fetch from Slack when starting a DM session (conversations.history).
+   * Gives the agent recent DM context even when the session store is empty. Default: 20. Set to 0 to disable.
+   */
+  dmInitialHistoryLimit?: number;
   /** Per-DM config overrides keyed by user ID. */
   dms?: Record<string, DmConfig>;
   textChunkLimit?: number;

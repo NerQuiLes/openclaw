@@ -71,6 +71,8 @@ export type MsgContext = {
   ThreadStarterBody?: string;
   /** Full thread history when starting a new thread session. */
   ThreadHistoryBody?: string;
+  /** Recent DM messages fetched from the provider when starting a DM session (e.g. Slack conversations.history). */
+  DmHistoryBody?: string;
   IsFirstThreadTurn?: boolean;
   ThreadLabel?: string;
   MediaPath?: string;

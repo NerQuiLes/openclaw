@@ -1,6 +1,6 @@
+import type { FinalizedMsgContext, MsgContext } from "../templating.js";
 import { normalizeChatType } from "../../channels/chat-type.js";
 import { resolveConversationLabel } from "../../channels/conversation-label.js";
-import type { FinalizedMsgContext, MsgContext } from "../templating.js";
 import { normalizeInboundTextNewlines } from "./inbound-text.js";
 
 export type FinalizeInboundContextOptions = {
@@ -48,6 +48,7 @@ export function finalizeInboundContext<T extends Record<string, unknown>>(
   normalized.Transcript = normalizeTextField(normalized.Transcript);
   normalized.ThreadStarterBody = normalizeTextField(normalized.ThreadStarterBody);
   normalized.ThreadHistoryBody = normalizeTextField(normalized.ThreadHistoryBody);
+  normalized.DmHistoryBody = normalizeTextField(normalized.DmHistoryBody);
   if (Array.isArray(normalized.UntrustedContext)) {
     const normalizedUntrusted = normalized.UntrustedContext.map((entry) =>
       normalizeInboundTextNewlines(entry),

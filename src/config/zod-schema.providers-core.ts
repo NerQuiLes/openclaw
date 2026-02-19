@@ -553,6 +553,7 @@ export const SlackAccountSchema = z
     replyToMode: ReplyToModeSchema.optional(),
     replyToModeByChatType: SlackReplyToModeByChatTypeSchema.optional(),
     thread: SlackThreadSchema.optional(),
+    dmInitialHistoryLimit: z.number().int().min(0).optional(),
     actions: z
       .object({
         reactions: z.boolean().optional(),

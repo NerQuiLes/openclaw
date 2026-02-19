@@ -1,3 +1,7 @@
+import type { FinalizedMsgContext } from "../../../auto-reply/templating.js";
+import type { ResolvedSlackAccount } from "../../accounts.js";
+import type { SlackMessageEvent } from "../../types.js";
+import type { PreparedSlackMessage } from "./types.js";
 import { resolveAckReaction } from "../../../agents/identity.js";
 import { hasControlCommand } from "../../../auto-reply/command-detection.js";
 import { shouldHandleTextCommands } from "../../../auto-reply/commands-registry.js";
@@ -14,7 +18,6 @@ import {
   buildMentionRegexes,
   matchesMentionWithExplicit,
 } from "../../../auto-reply/reply/mentions.js";
-import type { FinalizedMsgContext } from "../../../auto-reply/templating.js";
 import {
   shouldAckReaction as shouldAckReactionGate,
   type AckReactionScope,
@@ -32,11 +35,9 @@ import { buildPairingReply } from "../../../pairing/pairing-messages.js";
 import { upsertChannelPairingRequest } from "../../../pairing/pairing-store.js";
 import { resolveAgentRoute } from "../../../routing/resolve-route.js";
 import { resolveThreadSessionKeys } from "../../../routing/session-key.js";
-import type { ResolvedSlackAccount } from "../../accounts.js";
 import { reactSlackMessage } from "../../actions.js";
 import { sendMessageSlack } from "../../send.js";
 import { resolveSlackThreadContext } from "../../threading.js";
-import type { SlackMessageEvent } from "../../types.js";
 import { resolveSlackAllowListMatch, resolveSlackUserAllowed } from "../allow-list.js";
 import { resolveSlackEffectiveAllowFrom } from "../auth.js";
 import { resolveSlackChannelConfig } from "../channel-config.js";
@@ -44,12 +45,12 @@ import { stripSlackMentionsForCommandDetection } from "../commands.js";
 import { normalizeSlackChannelType, type SlackMonitorContext } from "../context.js";
 import {
   resolveSlackAttachmentContent,
+  resolveSlackDmHistory,
   resolveSlackMedia,
   resolveSlackThreadHistory,
   resolveSlackThreadStarter,
 } from "../media.js";
 import { resolveSlackRoomContextHints } from "../room-context.js";
-import type { PreparedSlackMessage } from "./types.js";
 
 export async function prepareSlackMessage(params: {
   ctx: SlackMonitorContext;
@@ -484,6 +485,8 @@ export async function prepareSlackMessage(params: {
   let threadSessionPreviousTimestamp: number | undefined;
   let threadLabel: string | undefined;
   let threadStarterMedia: Awaited<ReturnType<typeof resolveSlackMedia>> = null;
+  let dmHistoryBody: string | undefined;
+
   if (isThreadReply && threadTs) {
     const starter = await resolveSlackThreadStarter({
       channelId: message.channel,
@@ -572,6 +575,59 @@ export async function prepareSlackMessage(params: {
     }
   }
 
+  if (isDirectMessage) {
+    const dmInitialHistoryLimit = account.config?.dmInitialHistoryLimit ?? 20;
+    const dmSessionPreviousTimestamp = readSessionUpdatedAt({
+      storePath,
+      sessionKey,
+    });
+    if (dmInitialHistoryLimit > 0 && !dmSessionPreviousTimestamp) {
+      const dmHistory = await resolveSlackDmHistory({
+        channelId: message.channel,
+        client: ctx.app.client,
+        currentMessageTs: message.ts,
+        limit: dmInitialHistoryLimit,
+      });
+
+      if (dmHistory.length > 0) {
+        const uniqueUserIds = [
+          ...new Set(dmHistory.map((m) => m.userId).filter((id): id is string => Boolean(id))),
+        ];
+        const userMap = new Map<string, { name?: string }>();
+        await Promise.all(
+          uniqueUserIds.map(async (id) => {
+            const user = await ctx.resolveUserName(id);
+            if (user) {
+              userMap.set(id, user);
+            }
+          }),
+        );
+
+        const dmParts: string[] = [];
+        for (const historyMsg of dmHistory) {
+          const msgUser = historyMsg.userId ? userMap.get(historyMsg.userId) : null;
+          const msgSenderName =
+            msgUser?.name ?? (historyMsg.botId ? `Bot (${historyMsg.botId})` : "Unknown");
+          const isBot = Boolean(historyMsg.botId);
+          const role = isBot ? "assistant" : "user";
+          const msgWithId = `${historyMsg.text}\n[slack message id: ${historyMsg.ts ?? "unknown"} channel: ${message.channel}]`;
+          dmParts.push(
+            formatInboundEnvelope({
+              channel: "Slack",
+              from: `${msgSenderName} (${role})`,
+              timestamp: historyMsg.ts ? Math.round(Number(historyMsg.ts) * 1000) : undefined,
+              body: msgWithId,
+              chatType: "direct",
+              envelope: envelopeOptions,
+            }),
+          );
+        }
+        dmHistoryBody = dmParts.join("\n\n");
+        logVerbose(`slack: populated DM history with ${dmHistory.length} messages for new session`);
+      }
+    }
+  }
+
   // Use direct media (including forwarded attachment media) if available, else thread starter media
   const effectiveMedia = effectiveDirectMedia ?? threadStarterMedia;
   const firstMedia = effectiveMedia?.[0];
@@ -611,6 +667,7 @@ export async function prepareSlackMessage(params: {
     ParentSessionKey: threadKeys.parentSessionKey,
     ThreadStarterBody: threadStarterBody,
     ThreadHistoryBody: threadHistoryBody,
+    DmHistoryBody: dmHistoryBody,
     IsFirstThreadTurn:
       isThreadReply && threadTs && !threadSessionPreviousTimestamp ? true : undefined,
     ThreadLabel: threadLabel,
