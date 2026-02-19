@@ -1,0 +1,15 @@
+{
+  "id": "kairos-bridge",
+  "name": "Kairos Bridge",
+  "description": "Tools for KAIROS-EVO: recall, think, insight, experience (memory) plus mcp_discover (list 80+ native + 500+ catalog tools) and mcp_execute (run any tool by id).",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "baseUrl": {
+        "type": "string",
+        "description": "Kairos Bridge base URL (default from KAIROS_BRIDGE_URL env)"
+      }
+    }
+  }
+}

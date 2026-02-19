@@ -12,7 +12,7 @@ const DEFAULT_MODEL = "MiniMax-M2.5";
 const DEFAULT_BASE_URL_CN = "https://api.minimaxi.com/anthropic";
 const DEFAULT_BASE_URL_GLOBAL = "https://api.minimax.io/anthropic";
 const DEFAULT_CONTEXT_WINDOW = 200000;
-const DEFAULT_MAX_TOKENS = 8192;
+const DEFAULT_MAX_TOKENS = 16384;
 const OAUTH_PLACEHOLDER = "minimax-oauth";
 
 function getDefaultBaseUrl(region: MiniMaxRegion): string {

@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "paths": {
+      "openclaw/plugin-sdk": ["../../src/plugin-sdk/index.ts"]
+    },
+    "baseUrl": ".",
+    "typeRoots": ["../../node_modules/@types"],
+    "skipLibCheck": true,
+    "moduleResolution": "NodeNext",
+    "module": "NodeNext"
+  },
+  "include": ["./index.ts", "./session-manager.ts", "./*.d.ts"],
+  "exclude": ["node_modules"]
+}
