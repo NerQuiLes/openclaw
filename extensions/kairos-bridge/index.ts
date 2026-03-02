@@ -470,7 +470,6 @@ export default function register(api: OpenClawPluginApi) {
           tool_id: string;
           parameters?: Record<string, unknown>;
         };
-        // Usar /tools/execute con formato directo {tool_id, parameters}
         const result = await gatewayPost(baseUrl, apiKey, "/tools/execute", {
           tool_id,
           parameters,
@@ -482,12 +481,19 @@ export default function register(api: OpenClawPluginApi) {
             details: {},
           };
         }
-        const data = result.data as { result?: unknown; output?: string; success?: boolean };
-        const raw = data?.result ?? data?.output ?? data;
-        const out = typeof raw === "string" ? raw : JSON.stringify(raw ?? {});
+        const data = result.data as {
+          result?: unknown;
+          output?: string;
+          success?: boolean;
+          tool_id?: string;
+          tool_type?: string;
+        };
+        const toolResult = data?.result ?? data?.output ?? {};
+        const output =
+          typeof toolResult === "string" ? toolResult : JSON.stringify(toolResult, null, 2);
         return {
-          content: [{ type: "text" as const, text: out }],
-          details: data,
+          content: [{ type: "text" as const, text: output }],
+          details: toolResult,
         };
       },
     },
