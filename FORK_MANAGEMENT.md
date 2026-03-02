@@ -5,8 +5,8 @@
 - **Fork**: [NerQuiLes/openclaw](https://github.com/NerQuiLes/openclaw.git)
 - **Upstream**: [openclaw/openclaw](https://github.com/openclaw/openclaw.git)
 - **Rama principal**: `kairos-evo`
-- **Commits locales adelante**: 321
-- **Estado**: ✅ Actualizado con upstream
+- **Commits locales adelante**: 8 (personalizaciones Kairos + merge 2026-03-02)
+- **Estado**: ✅ Actualizado con upstream (merge upstream/main 2026-03-02)
 
 ## 🛡️ Archivos Críticos Protegidos
 
