@@ -9,6 +9,62 @@ import { getSessionManager, resetSessionManager } from "./session-manager.js";
 
 const DEFAULT_BASE_URL = "http://mcp_gateway:3000";
 const BRIDGE_PREFIX = "/kairos/bridge";
+const DEFAULT_AACT_URL = "http://aact-server:9998";
+
+function getAactUrl(): string {
+  return process.env.AACT_DIRECT_URL?.trim() ?? DEFAULT_AACT_URL;
+}
+
+function getAactApiKey(): string {
+  return process.env.AACT_API_KEY?.trim() ?? "";
+}
+
+async function aactGet(
+  baseUrl: string,
+  path: string,
+): Promise<{ success: boolean; data?: unknown; error?: string }> {
+  const url = `${baseUrl.replace(/\/$/, "")}${path}`;
+  const apiKey = getAactApiKey();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+  try {
+    const res = await fetch(url, { method: "GET", headers });
+    const json = (await res.json()) as { success?: boolean; [k: string]: unknown };
+    if (!res.ok) {
+      const raw = json?.error ?? `HTTP ${res.status}`;
+      return { success: false, error: errorToReadableString(raw) };
+    }
+    return { success: true, data: json };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+async function aactPost(
+  baseUrl: string,
+  path: string,
+  body: Record<string, unknown>,
+): Promise<{ success: boolean; data?: unknown; error?: string }> {
+  const url = `${baseUrl.replace(/\/$/, "")}${path}`;
+  const apiKey = getAactApiKey();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+    const json = (await res.json()) as { success?: boolean; [k: string]: unknown };
+    if (!res.ok) {
+      const raw = json?.error ?? `HTTP ${res.status}`;
+      return { success: false, error: errorToReadableString(raw) };
+    }
+    return { success: json.success !== false, data: json };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
 
 function getBaseUrl(api: OpenClawPluginApi): string {
   const fromEnv = process.env.KAIROS_BRIDGE_URL?.trim();
@@ -139,7 +195,7 @@ export default function register(api: OpenClawPluginApi) {
       "kairos-bridge: MOLTBOT_API_KEY not set; tools will return auth error when called.",
     );
   } else {
-    api.logger.info(`kairos-bridge: registered (baseUrl=${baseUrl})`);
+    api.logger.info(`kairos-bridge: registered (baseUrl=${baseUrl}, aactUrl=${getAactUrl()})`);
   }
 
   // Initialize session manager for DM handling
@@ -501,6 +557,245 @@ export default function register(api: OpenClawPluginApi) {
   );
 
   // Register session management tool
+  // === AACT DIRECT TOOLS ===
+  const aactUrl = getAactUrl();
+
+  api.registerTool(
+    {
+      name: "aact_discover",
+      label: "AACT Discover",
+      description:
+        "List AACT apps and tools. Call without appId to see all available apps (monday, gmail, notion, kairos-evo, kairos-evo_memory, slack, etc.). Pass appId to see the tools of a specific app with their toolId. Use toolIds with aact_execute.",
+      parameters: {
+        type: "object",
+        properties: {
+          appId: {
+            type: "string",
+            description:
+              "App ID to list its tools (e.g. 'monday', 'gmail', 'notion', 'kairos-evo', 'kairos-evo_memory'). Omit to list all apps.",
+          },
+        },
+      },
+      async execute(_toolCallId, params) {
+        const { appId } = params as { appId?: string };
+        if (appId) {
+          const result = await aactGet(aactUrl, `/api/apps/${encodeURIComponent(appId)}/tools`);
+          if (!result.success) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `AACT discover tools failed for '${appId}': ${result.error ?? "unknown"}`,
+                },
+              ],
+              details: {},
+            };
+          }
+          const data = result.data as
+            | {
+                appId?: string;
+                appName?: string;
+                tools?: Array<{ id: string; name: string; description?: string }>;
+              }
+            | undefined;
+          const tools = data?.tools ?? [];
+          const lines = tools.map(
+            (t) =>
+              `  - toolId: "${appId}.${t.id}"  →  ${t.name}${t.description ? `: ${t.description}` : ""}`,
+          );
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `AACT app '${data?.appName ?? appId}' has ${tools.length} tools:\n${lines.join("\n")}\n\nUse aact_execute(toolId, parameters) to run any tool.`,
+              },
+            ],
+            details: { appId, tools: data?.tools },
+          };
+        } else {
+          const result = await aactGet(aactUrl, "/api/apps");
+          if (!result.success) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `AACT discover apps failed: ${result.error ?? "unknown"}`,
+                },
+              ],
+              details: {},
+            };
+          }
+          const data = result.data as
+            | {
+                apps?: Array<{
+                  id: string;
+                  name: string;
+                  description?: string;
+                  toolsCount?: number;
+                  category?: string;
+                }>;
+              }
+            | undefined;
+          const apps = data?.apps ?? [];
+          const lines = apps.map(
+            (a) =>
+              `  - appId: "${a.id}"  (${a.toolsCount ?? 0} tools)  ${a.name}${a.description ? ` — ${a.description}` : ""}`,
+          );
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `AACT has ${apps.length} apps available:\n${lines.join("\n")}\n\nCall aact_discover(appId) to see tools of a specific app.`,
+              },
+            ],
+            details: { apps: data?.apps },
+          };
+        }
+      },
+    },
+    { name: "aact_discover" },
+  );
+
+  api.registerTool(
+    {
+      name: "aact_recommend",
+      label: "AACT Recommend",
+      description:
+        "Find the right AACT tool by describing what you want to do in natural language. Returns tool IDs ready to use with aact_execute.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description:
+              "What you want to do (e.g. 'send an email', 'create a Monday task', 'save memory episode', 'search Notion database')",
+          },
+        },
+        required: ["query"],
+      },
+      async execute(_toolCallId, params) {
+        const { query } = params as { query: string };
+        const result = await aactPost(aactUrl, "/api/recommend", { query });
+        if (!result.success) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `AACT recommend failed: ${result.error ?? "unknown"}`,
+              },
+            ],
+            details: {},
+          };
+        }
+        const data = result.data as
+          | {
+              recommendations?: Array<{
+                toolId: string;
+                toolName: string;
+                confidence: number;
+                description?: string;
+                reasoning?: string;
+              }>;
+              context?: { intentType?: string; domain?: string };
+            }
+          | undefined;
+        const recs = data?.recommendations ?? [];
+        if (recs.length === 0) {
+          return {
+            content: [{ type: "text" as const, text: `No AACT tools found for: "${query}"` }],
+            details: {},
+          };
+        }
+        const lines = recs.map(
+          (r, i) =>
+            `${i + 1}. toolId: "${r.toolId}"  (confidence: ${(r.confidence * 100).toFixed(0)}%)\n   ${r.toolName}${r.description ? `: ${r.description}` : ""}${r.reasoning ? `\n   Reason: ${r.reasoning}` : ""}`,
+        );
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `AACT tool recommendations for "${query}":\n\n${lines.join("\n\n")}\n\nUse aact_execute(toolId, parameters) to run the chosen tool.`,
+            },
+          ],
+          details: { recommendations: data?.recommendations, context: data?.context },
+        };
+      },
+    },
+    { name: "aact_recommend" },
+  );
+
+  api.registerTool(
+    {
+      name: "aact_execute",
+      label: "AACT Execute",
+      description:
+        "Execute any AACT tool directly (bypasses MCP Gateway). Use toolId from aact_discover or aact_recommend. Format: 'appId.toolName' (e.g. 'monday.list_boards', 'kairos-evo.kai_think', 'kairos-evo_memory.memory_episode_create', 'gmail.users_messages_send', 'notion.search').",
+      parameters: {
+        type: "object",
+        properties: {
+          toolId: {
+            type: "string",
+            description:
+              "Tool ID in format appId.toolName (e.g. 'monday.list_boards', 'kairos-evo.kai_recall')",
+          },
+          parameters: {
+            type: "object",
+            description:
+              "Parameters for the tool (keys depend on the tool — use aact_discover to see schema)",
+          },
+        },
+        required: ["toolId"],
+      },
+      async execute(_toolCallId, params) {
+        const { toolId, parameters: toolParams = {} } = params as {
+          toolId: string;
+          parameters?: Record<string, unknown>;
+        };
+        const result = await aactPost(aactUrl, "/api/execute", { toolId, parameters: toolParams });
+        if (!result.success) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `AACT execute failed for '${toolId}': ${result.error ?? "unknown"}`,
+              },
+            ],
+            details: { toolId },
+          };
+        }
+        const data = result.data as
+          | {
+              success?: boolean;
+              toolId?: string;
+              data?: unknown;
+              result?: unknown;
+              error?: string;
+              executionTime?: number;
+            }
+          | undefined;
+        if (data?.success === false) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `AACT tool '${toolId}' returned error: ${data.error ?? "unknown"}`,
+              },
+            ],
+            details: data,
+          };
+        }
+        const toolResult = data?.data ?? data?.result ?? data ?? {};
+        const output =
+          typeof toolResult === "string" ? toolResult : JSON.stringify(toolResult, null, 2);
+        return {
+          content: [{ type: "text" as const, text: output }],
+          details: { toolId, result: toolResult, executionTime: data?.executionTime },
+        };
+      },
+    },
+    { name: "aact_execute" },
+  );
+
   api.registerTool(
     {
       name: "kairos_session_status",
