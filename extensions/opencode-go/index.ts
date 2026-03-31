@@ -1,16 +1,14 @@
-import { emptyPluginConfigSchema, type OpenClawPluginApi } from "openclaw/plugin-sdk/core";
-import { createProviderApiKeyAuthMethod } from "openclaw/plugin-sdk/provider-auth";
-import { OPENCODE_GO_DEFAULT_MODEL_REF } from "openclaw/plugin-sdk/provider-models";
-import { applyOpencodeGoConfig } from "./onboard.js";
+import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
+import { createProviderApiKeyAuthMethod } from "openclaw/plugin-sdk/provider-auth-api-key";
+import { applyOpencodeGoConfig, OPENCODE_GO_DEFAULT_MODEL_REF } from "./api.js";
 
 const PROVIDER_ID = "opencode-go";
 
-const opencodeGoPlugin = {
+export default definePluginEntry({
   id: PROVIDER_ID,
   name: "OpenCode Go Provider",
   description: "Bundled OpenCode Go provider plugin",
-  configSchema: emptyPluginConfigSchema(),
-  register(api: OpenClawPluginApi) {
+  register(api) {
     api.registerProvider({
       id: PROVIDER_ID,
       label: "OpenCode Go",
@@ -53,6 +51,4 @@ const opencodeGoPlugin = {
       isModernModelRef: () => true,
     });
   },
-};
-
-export default opencodeGoPlugin;
+});

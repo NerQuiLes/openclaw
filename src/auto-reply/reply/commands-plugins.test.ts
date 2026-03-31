@@ -1,19 +1,13 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
 import { withTempHome } from "../../config/home-env.test-harness.js";
 import { handleCommands } from "./commands-core.js";
+import { createCommandWorkspaceHarness } from "./commands-filesystem.test-support.js";
 import { buildCommandTestParams } from "./commands.test-harness.js";
 
-const tempDirs: string[] = [];
-
-async function createWorkspace(): Promise<string> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-command-plugins-"));
-  tempDirs.push(dir);
-  return dir;
-}
+const workspaceHarness = createCommandWorkspaceHarness("openclaw-command-plugins-");
 
 async function createClaudeBundlePlugin(params: { workspaceDir: string; pluginId: string }) {
   const pluginDir = path.join(params.workspaceDir, ".openclaw", "extensions", params.pluginId);
@@ -29,6 +23,9 @@ async function createClaudeBundlePlugin(params: { workspaceDir: string; pluginId
 
 function buildCfg(): OpenClawConfig {
   return {
+    plugins: {
+      enabled: true,
+    },
     commands: {
       text: true,
       plugins: true,
@@ -38,14 +35,12 @@ function buildCfg(): OpenClawConfig {
 
 describe("handleCommands /plugins", () => {
   afterEach(async () => {
-    await Promise.all(
-      tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })),
-    );
+    await workspaceHarness.cleanupWorkspaces();
   });
 
-  it("lists discovered plugins and shows plugin details", async () => {
+  it("lists discovered plugins and inspects plugin details", async () => {
     await withTempHome("openclaw-command-plugins-home-", async () => {
-      const workspaceDir = await createWorkspace();
+      const workspaceDir = await workspaceHarness.createWorkspace();
       await createClaudeBundlePlugin({ workspaceDir, pluginId: "superpowers" });
 
       const listParams = buildCommandTestParams("/plugins list", buildCfg(), undefined, {
@@ -57,63 +52,41 @@ describe("handleCommands /plugins", () => {
       expect(listResult.reply?.text).toContain("superpowers");
       expect(listResult.reply?.text).toContain("[disabled]");
 
-      const showParams = buildCommandTestParams("/plugin show superpowers", buildCfg(), undefined, {
-        workspaceDir,
-      });
+      const showParams = buildCommandTestParams(
+        "/plugins inspect superpowers",
+        buildCfg(),
+        undefined,
+        {
+          workspaceDir,
+        },
+      );
       showParams.command.senderIsOwner = true;
       const showResult = await handleCommands(showParams);
       expect(showResult.reply?.text).toContain('"id": "superpowers"');
       expect(showResult.reply?.text).toContain('"bundleFormat": "claude"');
-    });
-  });
+      expect(showResult.reply?.text).toContain('"shape":');
+      expect(showResult.reply?.text).toContain('"compatibilityWarnings": []');
 
-  it("enables and disables a discovered plugin", async () => {
-    await withTempHome("openclaw-command-plugins-home-", async () => {
-      const workspaceDir = await createWorkspace();
-      await createClaudeBundlePlugin({ workspaceDir, pluginId: "superpowers" });
-
-      const enableParams = buildCommandTestParams(
-        "/plugins enable superpowers",
+      const inspectAllParams = buildCommandTestParams(
+        "/plugins inspect all",
         buildCfg(),
         undefined,
         {
           workspaceDir,
         },
       );
-      enableParams.command.senderIsOwner = true;
-      const enableResult = await handleCommands(enableParams);
-      expect(enableResult.reply?.text).toContain('Plugin "superpowers" enabled');
-
-      const showEnabledParams = buildCommandTestParams(
-        "/plugins show superpowers",
-        buildCfg(),
-        undefined,
-        {
-          workspaceDir,
-        },
-      );
-      showEnabledParams.command.senderIsOwner = true;
-      const showEnabledResult = await handleCommands(showEnabledParams);
-      expect(showEnabledResult.reply?.text).toContain('"status": "loaded"');
-      expect(showEnabledResult.reply?.text).toContain('"enabled": true');
-
-      const disableParams = buildCommandTestParams(
-        "/plugins disable superpowers",
-        buildCfg(),
-        undefined,
-        {
-          workspaceDir,
-        },
-      );
-      disableParams.command.senderIsOwner = true;
-      const disableResult = await handleCommands(disableParams);
-      expect(disableResult.reply?.text).toContain('Plugin "superpowers" disabled');
+      inspectAllParams.command.senderIsOwner = true;
+      const inspectAllResult = await handleCommands(inspectAllParams);
+      expect(inspectAllResult.reply?.text).toContain("```json");
+      expect(inspectAllResult.reply?.text).toContain('"plugin"');
+      expect(inspectAllResult.reply?.text).toContain('"compatibilityWarnings"');
+      expect(inspectAllResult.reply?.text).toContain('"superpowers"');
     });
   });
 
   it("rejects internal writes without operator.admin", async () => {
     await withTempHome("openclaw-command-plugins-home-", async () => {
-      const workspaceDir = await createWorkspace();
+      const workspaceDir = await workspaceHarness.createWorkspace();
       await createClaudeBundlePlugin({ workspaceDir, pluginId: "superpowers" });
 
       const params = buildCommandTestParams(

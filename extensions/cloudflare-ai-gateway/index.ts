@@ -1,4 +1,4 @@
-import { emptyPluginConfigSchema, type OpenClawPluginApi } from "openclaw/plugin-sdk/core";
+import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import {
   applyAuthProfileConfig,
   buildApiKeyCredential,
@@ -15,13 +15,10 @@ import {
 } from "openclaw/plugin-sdk/provider-auth";
 import {
   buildCloudflareAiGatewayModelDefinition,
-  resolveCloudflareAiGatewayBaseUrl,
-} from "openclaw/plugin-sdk/provider-models";
-import {
-  applyCloudflareAiGatewayConfig,
-  buildCloudflareAiGatewayConfigPatch,
   CLOUDFLARE_AI_GATEWAY_DEFAULT_MODEL_REF,
-} from "./onboard.js";
+  resolveCloudflareAiGatewayBaseUrl,
+} from "./models.js";
+import { applyCloudflareAiGatewayConfig, buildCloudflareAiGatewayConfigPatch } from "./onboard.js";
 
 const PROVIDER_ID = "cloudflare-ai-gateway";
 const PROVIDER_ENV_VAR = "CLOUDFLARE_AI_GATEWAY_API_KEY";
@@ -84,12 +81,11 @@ async function resolveCloudflareGatewayMetadataInteractive(ctx: {
   return { accountId, gatewayId };
 }
 
-const cloudflareAiGatewayPlugin = {
+export default definePluginEntry({
   id: PROVIDER_ID,
   name: "Cloudflare AI Gateway Provider",
   description: "Bundled Cloudflare AI Gateway provider plugin",
-  configSchema: emptyPluginConfigSchema(),
-  register(api: OpenClawPluginApi) {
+  register(api) {
     api.registerProvider({
       id: PROVIDER_ID,
       label: "Cloudflare AI Gateway",
@@ -252,6 +248,4 @@ const cloudflareAiGatewayPlugin = {
       },
     });
   },
-};
-
-export default cloudflareAiGatewayPlugin;
+});
