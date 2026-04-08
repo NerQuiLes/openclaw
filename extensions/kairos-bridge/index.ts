@@ -8,7 +8,6 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { getSessionManager, resetSessionManager } from "./session-manager.js";
 
 const DEFAULT_BASE_URL = "http://aact-server:9999";
-const BRIDGE_PREFIX = "/kairos/bridge";
 const DEFAULT_AACT_URL = "http://aact-server:9999";
 
 function getAactUrl(): string {
@@ -26,7 +25,9 @@ async function aactGet(
   const url = `${baseUrl.replace(/\/$/, "")}${path}`;
   const apiKey = getAactApiKey();
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (apiKey) {headers["Authorization"] = `Bearer ${apiKey}`;}
+  if (apiKey) {
+    headers["Authorization"] = `Bearer ${apiKey}`;
+  }
   try {
     const res = await fetch(url, { method: "GET", headers });
     const json = (await res.json()) as { success?: boolean; [k: string]: unknown };
@@ -48,7 +49,9 @@ async function aactPost(
   const url = `${baseUrl.replace(/\/$/, "")}${path}`;
   const apiKey = getAactApiKey();
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (apiKey) {headers["Authorization"] = `Bearer ${apiKey}`;}
+  if (apiKey) {
+    headers["Authorization"] = `Bearer ${apiKey}`;
+  }
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -82,8 +85,12 @@ function getApiKey(): string {
  */
 function getAgentId(): string {
   const botId = process.env.OPENCLAW_BOT_ID?.trim();
-  if (botId === "B0ADBQ31PJA") {return "kai";}
-  if (botId === "B09REUFF6CS") {return "cangrejo";}
+  if (botId === "B0ADBQ31PJA") {
+    return "kai";
+  }
+  if (botId === "B09REUFF6CS") {
+    return "cangrejo";
+  }
   return "unknown";
 }
 
@@ -101,8 +108,12 @@ function toolsHeaders(apiKey: string): Record<string, string> {
  * Avoids "[object Object]" when detail/error is an object (e.g. FastAPI validation or bridge security).
  */
 function errorToReadableString(err: unknown): string {
-  if (err == null) {return "unknown";}
-  if (typeof err === "string") {return err;}
+  if (err == null) {
+    return "unknown";
+  }
+  if (typeof err === "string") {
+    return err;
+  }
   if (Array.isArray(err)) {
     const parts = err.map((e) =>
       typeof e === "object" && e != null && "msg" in e
@@ -113,8 +124,11 @@ function errorToReadableString(err: unknown): string {
     );
     return parts.join("; ");
   }
-  if (typeof err === "object") {return JSON.stringify(err);}
-  return String(err);
+  if (typeof err === "object") {
+    return JSON.stringify(err);
+  }
+  // For primitives (number, boolean, symbol), convert safely
+  return typeof err === "number" || typeof err === "boolean" ? String(err) : "unknown";
 }
 
 /** GET request to MCP Gateway (e.g. /tools/discovery). */
@@ -158,43 +172,6 @@ async function gatewayPost(
     };
   }
   return { success: json.success !== false, data: json };
-}
-
-async function bridgeFetch(
-  baseUrl: string,
-  apiKey: string,
-  path: string,
-  body: Record<string, unknown>,
-): Promise<{ success: boolean; data?: unknown; error?: string; took_ms?: number }> {
-  const url = `${baseUrl.replace(/\/$/, "")}${BRIDGE_PREFIX}${path}`;
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(apiKey ? { "X-MOLTBOT-API-KEY": apiKey } : {}),
-  };
-  const res = await fetch(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
-  const json = (await res.json()) as {
-    success?: boolean;
-    data?: unknown;
-    error?: string;
-    took_ms?: number;
-  };
-  if (!res.ok) {
-    return {
-      success: false,
-      error: json?.error ?? `HTTP ${res.status}`,
-      took_ms: json?.took_ms,
-    };
-  }
-  return {
-    success: json.success !== false,
-    data: json.data,
-    error: json.error,
-    took_ms: json.took_ms,
-  };
 }
 
 export default function register(api: OpenClawPluginApi) {

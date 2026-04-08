@@ -204,7 +204,7 @@ export class SessionManager {
               fs.unlinkSync(lockPath);
               cleanedLocks++;
             }
-          } catch (e) {
+          } catch {
             // Ignore errors for individual files
           }
         }

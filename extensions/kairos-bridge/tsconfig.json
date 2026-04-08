@@ -6,7 +6,6 @@
     "paths": {
       "openclaw/plugin-sdk": ["./node_modules/openclaw/plugin-sdk"]
     },
-    "baseUrl": ".",
     "typeRoots": ["../../node_modules/@types"],
     "skipLibCheck": true,
     "moduleResolution": "NodeNext",
