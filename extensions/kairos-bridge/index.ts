@@ -7,9 +7,9 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { getSessionManager, resetSessionManager } from "./session-manager.js";
 
-const DEFAULT_BASE_URL = "http://mcp_gateway:3000";
+const DEFAULT_BASE_URL = "http://aact-server:9999";
 const BRIDGE_PREFIX = "/kairos/bridge";
-const DEFAULT_AACT_URL = "http://aact-server:9998";
+const DEFAULT_AACT_URL = "http://aact-server:9999";
 
 function getAactUrl(): string {
   return process.env.AACT_DIRECT_URL?.trim() ?? DEFAULT_AACT_URL;
@@ -26,7 +26,7 @@ async function aactGet(
   const url = `${baseUrl.replace(/\/$/, "")}${path}`;
   const apiKey = getAactApiKey();
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+  if (apiKey) {headers["Authorization"] = `Bearer ${apiKey}`;}
   try {
     const res = await fetch(url, { method: "GET", headers });
     const json = (await res.json()) as { success?: boolean; [k: string]: unknown };
@@ -48,7 +48,7 @@ async function aactPost(
   const url = `${baseUrl.replace(/\/$/, "")}${path}`;
   const apiKey = getAactApiKey();
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+  if (apiKey) {headers["Authorization"] = `Bearer ${apiKey}`;}
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -76,6 +76,17 @@ function getApiKey(): string {
   return process.env.MOLTBOT_API_KEY?.trim() ?? "";
 }
 
+/**
+ * Detecta el agent_id basado en el BOT_ID de OpenClaw.
+ * Kai: B0ADBQ31PJA, Cangrejo: B09REUFF6CS
+ */
+function getAgentId(): string {
+  const botId = process.env.OPENCLAW_BOT_ID?.trim();
+  if (botId === "B0ADBQ31PJA") {return "kai";}
+  if (botId === "B09REUFF6CS") {return "cangrejo";}
+  return "unknown";
+}
+
 function toolsHeaders(apiKey: string): Record<string, string> {
   const h: Record<string, string> = { "Content-Type": "application/json" };
   if (apiKey) {
@@ -90,8 +101,8 @@ function toolsHeaders(apiKey: string): Record<string, string> {
  * Avoids "[object Object]" when detail/error is an object (e.g. FastAPI validation or bridge security).
  */
 function errorToReadableString(err: unknown): string {
-  if (err == null) return "unknown";
-  if (typeof err === "string") return err;
+  if (err == null) {return "unknown";}
+  if (typeof err === "string") {return err;}
   if (Array.isArray(err)) {
     const parts = err.map((e) =>
       typeof e === "object" && e != null && "msg" in e
@@ -102,7 +113,7 @@ function errorToReadableString(err: unknown): string {
     );
     return parts.join("; ");
   }
-  if (typeof err === "object") return JSON.stringify(err);
+  if (typeof err === "object") {return JSON.stringify(err);}
   return String(err);
 }
 
@@ -231,7 +242,10 @@ export default function register(api: OpenClawPluginApi) {
       },
       async execute(_toolCallId, params) {
         const { query, limit = 5 } = params as { query: string; limit?: number };
-        const result = await bridgeFetch(baseUrl, apiKey, "/recall", { query, limit });
+        const result = await aactPost(aactUrl, "/api/execute", {
+          toolId: "kairos-evo.kai_recall",
+          parameters: { about: query, limit },
+        });
         if (!result.success) {
           return {
             content: [
@@ -242,25 +256,31 @@ export default function register(api: OpenClawPluginApi) {
         }
         const data = result.data as
           | {
-              episodes?: Array<{ content?: string; content_summary?: string; score?: number }>;
-              count?: number;
+              data?: {
+                results?: Array<{
+                  content?: string;
+                  content_summary?: string;
+                  relevance_score?: number;
+                }>;
+                results_count?: number;
+              };
             }
           | undefined;
-        const episodes = data?.episodes ?? [];
+        const episodes = data?.data?.results ?? [];
         const text =
           episodes.length === 0
             ? "No relevant memories found in Kairos."
             : episodes
                 .map(
                   (e, i) =>
-                    `${i + 1}. ${e.content_summary ?? e.content ?? ""} ${e.score != null ? `(score ${(e.score * 100).toFixed(0)}%)` : ""}`,
+                    `${i + 1}. ${e.content_summary ?? e.content ?? ""} ${e.relevance_score != null ? `(score ${(e.relevance_score * 100).toFixed(0)}%)` : ""}`,
                 )
                 .join("\n");
         return {
           content: [
             { type: "text" as const, text: `Kairos recall (${episodes.length}):\n${text}` },
           ],
-          details: { count: data?.count ?? episodes.length },
+          details: { count: data?.data?.results_count ?? episodes.length },
         };
       },
     },
@@ -296,7 +316,10 @@ export default function register(api: OpenClawPluginApi) {
           importance = 5,
           tags = [],
         } = params as { thought: string; importance?: number; tags?: string[] };
-        const result = await bridgeFetch(baseUrl, apiKey, "/think", { thought, importance, tags });
+        const result = await aactPost(aactUrl, "/api/execute", {
+          toolId: "kairos-evo.kai_think",
+          parameters: { thought, importance, tags },
+        });
         if (!result.success) {
           return {
             content: [
@@ -305,9 +328,11 @@ export default function register(api: OpenClawPluginApi) {
             details: {},
           };
         }
-        const data = result.data as { message?: string } | undefined;
+        const data = result.data as { data?: { message?: string } } | undefined;
         return {
-          content: [{ type: "text" as const, text: data?.message ?? "Thought saved to Kairos." }],
+          content: [
+            { type: "text" as const, text: data?.data?.message ?? "Thought saved to Kairos." },
+          ],
           details: {},
         };
       },
@@ -351,10 +376,13 @@ export default function register(api: OpenClawPluginApi) {
           importance?: number;
           tags?: string[];
         };
-        const result = await bridgeFetch(baseUrl, apiKey, "/insight", {
-          ...body,
-          importance: body.importance ?? 5,
-          tags: body.tags ?? [],
+        const result = await aactPost(aactUrl, "/api/execute", {
+          toolId: "kairos-evo.kai_insight",
+          parameters: {
+            ...body,
+            importance: body.importance ?? 5,
+            tags: body.tags ?? [],
+          },
         });
         if (!result.success) {
           return {
@@ -367,9 +395,11 @@ export default function register(api: OpenClawPluginApi) {
             details: {},
           };
         }
-        const data = result.data as { message?: string } | undefined;
+        const data = result.data as { data?: { message?: string } } | undefined;
         return {
-          content: [{ type: "text" as const, text: data?.message ?? "Insight saved to Kairos." }],
+          content: [
+            { type: "text" as const, text: data?.data?.message ?? "Insight saved to Kairos." },
+          ],
           details: {},
         };
       },
@@ -414,11 +444,14 @@ export default function register(api: OpenClawPluginApi) {
           importance?: number;
           tags?: string[];
         };
-        const result = await bridgeFetch(baseUrl, apiKey, "/experience", {
-          ...body,
-          emotional_tone: body.emotional_tone ?? "neutral",
-          importance: body.importance ?? 5,
-          tags: body.tags ?? [],
+        const result = await aactPost(aactUrl, "/api/execute", {
+          toolId: "kairos-evo.kai_experience",
+          parameters: {
+            ...body,
+            emotional_tone: body.emotional_tone ?? "neutral",
+            importance: body.importance ?? 5,
+            tags: body.tags ?? [],
+          },
         });
         if (!result.success) {
           return {
@@ -431,10 +464,10 @@ export default function register(api: OpenClawPluginApi) {
             details: {},
           };
         }
-        const data = result.data as { message?: string } | undefined;
+        const data = result.data as { data?: { message?: string } } | undefined;
         return {
           content: [
-            { type: "text" as const, text: data?.message ?? "Experience saved to Kairos." },
+            { type: "text" as const, text: data?.data?.message ?? "Experience saved to Kairos." },
           ],
           details: {},
         };
@@ -751,7 +784,11 @@ export default function register(api: OpenClawPluginApi) {
           toolId: string;
           parameters?: Record<string, unknown>;
         };
-        const result = await aactPost(aactUrl, "/api/execute", { toolId, parameters: toolParams });
+        const agentId = getAgentId();
+        const result = await aactPost(aactUrl, "/api/execute", {
+          toolId,
+          parameters: { ...toolParams, _agent_id: agentId },
+        });
         if (!result.success) {
           return {
             content: [

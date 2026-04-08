@@ -4,7 +4,7 @@
     "lib": ["ES2023"],
     "types": ["node"],
     "paths": {
-      "openclaw/plugin-sdk": ["../../src/plugin-sdk/index.ts"]
+      "openclaw/plugin-sdk": ["./node_modules/openclaw/plugin-sdk"]
     },
     "baseUrl": ".",
     "typeRoots": ["../../node_modules/@types"],
