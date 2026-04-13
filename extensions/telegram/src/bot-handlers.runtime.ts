@@ -5,10 +5,8 @@ import {
   createInboundDebouncer,
   resolveInboundDebounceMs,
 } from "openclaw/plugin-sdk/channel-inbound";
-import {
-  buildCommandsMessagePaginated,
-  resolveStoredModelOverride,
-} from "openclaw/plugin-sdk/command-auth";
+import { resolveStoredModelOverride } from "openclaw/plugin-sdk/command-auth";
+import { buildCommandsMessagePaginated } from "openclaw/plugin-sdk/command-status";
 import { writeConfigFile } from "openclaw/plugin-sdk/config-runtime";
 import {
   loadSessionStore,
@@ -673,6 +671,13 @@ export const registerTelegramHandlers = ({
     },
   };
 
+  class TelegramRetryableCallbackError extends Error {
+    constructor(public readonly cause: unknown) {
+      super(String(cause));
+      this.name = "TelegramRetryableCallbackError";
+    }
+  }
+
   const resolveTelegramEventAuthorizationContext = async (params: {
     chatId: number;
     isGroup: boolean;
@@ -901,6 +906,7 @@ export const registerTelegramHandlers = ({
       }
     } catch (err) {
       runtime.error?.(danger(`telegram reaction handler failed: ${String(err)}`));
+      throw err;
     }
   });
   const processInboundMessage = async (params: {
@@ -1428,7 +1434,7 @@ export const registerTelegramHandlers = ({
         } catch (editErr) {
           const errStr = String(editErr);
           if (!errStr.includes("message is not modified")) {
-            throw editErr;
+            throw new TelegramRetryableCallbackError(editErr);
           }
         }
         return;
@@ -1437,18 +1443,22 @@ export const registerTelegramHandlers = ({
       // Model selection callback handler (mdl_prov, mdl_list_*, mdl_sel_*, mdl_back)
       const modelCallback = parseModelCallbackData(data);
       if (modelCallback) {
-        const sessionState = resolveTelegramSessionState({
-          chatId,
-          isGroup,
-          isForum,
-          messageThreadId,
-          resolvedThreadId,
-          senderId,
-        });
-        const modelData = await telegramDeps.buildModelsProviderData(
-          runtimeCfg,
-          sessionState.agentId,
-        );
+        let sessionState: ReturnType<typeof resolveTelegramSessionState>;
+        let modelData: Awaited<ReturnType<typeof telegramDeps.buildModelsProviderData>>;
+        try {
+          // Retry only the callback preflight that happens before any visible chat mutation.
+          sessionState = resolveTelegramSessionState({
+            chatId,
+            isGroup,
+            isForum,
+            messageThreadId,
+            resolvedThreadId,
+            senderId,
+          });
+          modelData = await telegramDeps.buildModelsProviderData(runtimeCfg, sessionState.agentId);
+        } catch (err) {
+          throw new TelegramRetryableCallbackError(err);
+        }
         const { byProvider, providers } = modelData;
 
         const editMessageWithButtons = async (
@@ -1512,15 +1522,7 @@ export const registerTelegramHandlers = ({
           const safePage = Math.max(1, Math.min(page, totalPages));
 
           // Resolve current model from session (prefer overrides)
-          const currentSessionState = resolveTelegramSessionState({
-            chatId,
-            isGroup,
-            isForum,
-            messageThreadId,
-            resolvedThreadId,
-            senderId,
-          });
-          const currentModel = currentSessionState.model;
+          const currentModel = sessionState.model;
 
           const buttons = buildModelsKeyboard({
             provider,
@@ -1534,8 +1536,8 @@ export const registerTelegramHandlers = ({
             provider,
             total: models.length,
             cfg,
-            agentDir: resolveAgentDir(cfg, currentSessionState.agentId),
-            sessionEntry: currentSessionState.sessionEntry,
+            agentDir: resolveAgentDir(cfg, sessionState.agentId),
+            sessionEntry: sessionState.sessionEntry,
           });
           await editMessageWithButtons(text, buttons);
           return;
@@ -1571,13 +1573,18 @@ export const registerTelegramHandlers = ({
 
           // Directly set model override in session
           try {
-            // Get session store path
-            const storePath = telegramDeps.resolveStorePath(cfg.session?.store, {
+            // Use the fresh runtimeCfg (loaded at callback entry) so store path
+            // and default-model resolution stay consistent with the next
+            // inbound message.  The outer `cfg` is a snapshot captured at
+            // handler-registration time and becomes stale after config reloads,
+            // which can cause the override to be written to the wrong store or
+            // incorrectly treated as the default model (clearing the override).
+            const storePath = telegramDeps.resolveStorePath(runtimeCfg.session?.store, {
               agentId: sessionState.agentId,
             });
 
             const resolvedDefault = resolveDefaultModelForAgent({
-              cfg,
+              cfg: runtimeCfg,
               agentId: sessionState.agentId,
             });
             const isDefaultSelection =
@@ -1631,6 +1638,9 @@ export const registerTelegramHandlers = ({
       });
     } catch (err) {
       runtime.error?.(danger(`callback handler failed: ${String(err)}`));
+      if (err instanceof TelegramRetryableCallbackError) {
+        throw err.cause;
+      }
     }
   });
 
@@ -1683,6 +1693,7 @@ export const registerTelegramHandlers = ({
       }
     } catch (err) {
       runtime.error?.(danger(`[telegram] Group migration handler failed: ${String(err)}`));
+      throw err;
     }
   });
 
