@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
 
-vi.mock("../../config/sessions/store.js", () => ({
+vi.mock("../../config/sessions/store-load.js", () => ({
   loadSessionStore: vi.fn(),
 }));
 
@@ -9,7 +9,7 @@ vi.mock("../../config/sessions/paths.js", () => ({
   resolveStorePath: vi.fn().mockReturnValue("/tmp/test-store.json"),
 }));
 
-vi.mock("../../config/sessions/reset.js", () => ({
+vi.mock("../../config/sessions/reset-policy.js", () => ({
   evaluateSessionFreshness: vi.fn().mockReturnValue({ fresh: true }),
   resolveSessionResetPolicy: vi.fn().mockReturnValue({ mode: "idle", idleMinutes: 60 }),
 }));
@@ -24,8 +24,8 @@ vi.mock("../../agents/bootstrap-cache.js", () => ({
 }));
 
 import { clearBootstrapSnapshot } from "../../agents/bootstrap-cache.js";
-import { evaluateSessionFreshness } from "../../config/sessions/reset.js";
-import { loadSessionStore } from "../../config/sessions/store.js";
+import { evaluateSessionFreshness } from "../../config/sessions/reset-policy.js";
+import { loadSessionStore } from "../../config/sessions/store-load.js";
 import { resolveCronSession } from "./session.js";
 
 const NOW_MS = 1_737_600_000_000;
@@ -120,6 +120,7 @@ describe("resolveCronSession", () => {
 
       expect(result.sessionEntry.sessionId).toBe("existing-session-id-123");
       expect(result.isNewSession).toBe(false);
+      expect(result.previousSessionId).toBeUndefined();
       expect(result.systemSent).toBe(true);
       expect(clearBootstrapSnapshot).not.toHaveBeenCalled();
     });
@@ -139,6 +140,7 @@ describe("resolveCronSession", () => {
 
       expect(result.sessionEntry.sessionId).not.toBe("old-session-id");
       expect(result.isNewSession).toBe(true);
+      expect(result.previousSessionId).toBe("old-session-id");
       expect(result.systemSent).toBe(false);
       expect(result.sessionEntry.modelOverride).toBe("gpt-4.1-mini");
       expect(result.sessionEntry.providerOverride).toBe("openai");
@@ -161,6 +163,7 @@ describe("resolveCronSession", () => {
 
       expect(result.sessionEntry.sessionId).not.toBe("existing-session-id-456");
       expect(result.isNewSession).toBe(true);
+      expect(result.previousSessionId).toBe("existing-session-id-456");
       expect(result.systemSent).toBe(false);
       expect(result.sessionEntry.modelOverride).toBe("sonnet-4");
       expect(result.sessionEntry.providerOverride).toBe("anthropic");

@@ -128,6 +128,8 @@ export type MsgContext = {
   /** Human label for channel-like group conversations (e.g. #general, #support). */
   GroupChannel?: string;
   GroupSpace?: string;
+  /** Trusted provider role ids for the sender in this group turn. */
+  MemberRoleIds?: string[];
   GroupMembers?: string;
   GroupSystemPrompt?: string;
   /** Untrusted metadata that must not be treated as system instructions. */
@@ -142,9 +144,9 @@ export type MsgContext = {
   SenderTag?: string;
   SenderE164?: string;
   Timestamp?: number;
-  /** Provider label (e.g. whatsapp, telegram). */
+  /** Provider label. */
   Provider?: string;
-  /** Provider surface label (e.g. discord, slack). Prefer this over `Provider` when available. */
+  /** Provider surface label. Prefer this over `Provider` when available. */
   Surface?: string;
   /** Platform bot username when command mentions should be normalized. */
   BotUsername?: string;
@@ -169,6 +171,8 @@ export type MsgContext = {
   NativeDirectUserId?: string;
   /** Telegram forum supergroup marker. */
   IsForum?: boolean;
+  /** Human-readable Telegram forum topic name (cached from service messages). */
+  TopicName?: string;
   /** Warning: DM has topics enabled but this message is not in a topic. */
   TopicRequiredButMissing?: boolean;
   /**

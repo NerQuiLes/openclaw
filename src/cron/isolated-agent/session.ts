@@ -4,7 +4,7 @@ import { resolveStorePath } from "../../config/sessions/paths.js";
 import {
   evaluateSessionFreshness,
   resolveSessionResetPolicy,
-} from "../../config/sessions/reset.js";
+} from "../../config/sessions/reset-policy.js";
 import { loadSessionStore } from "../../config/sessions/store-load.js";
 import type { SessionEntry } from "../../config/sessions/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
@@ -59,9 +59,10 @@ export function resolveCronSession(params: {
     systemSent = false;
   }
 
+  const previousSessionId = isNewSession ? entry?.sessionId : undefined;
   clearBootstrapSnapshotOnSessionRollover({
     sessionKey: params.sessionKey,
-    previousSessionId: isNewSession ? entry?.sessionId : undefined,
+    previousSessionId,
   });
 
   const sessionEntry: SessionEntry = {
@@ -86,5 +87,5 @@ export function resolveCronSession(params: {
       sessionFile: undefined,
     }),
   };
-  return { storePath, store, sessionEntry, systemSent, isNewSession };
+  return { storePath, store, sessionEntry, systemSent, isNewSession, previousSessionId };
 }

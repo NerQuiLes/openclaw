@@ -21,7 +21,10 @@ import {
 } from "./pi-embedded-runner/replay-state.js";
 import type { EmbeddedRunLivenessState } from "./pi-embedded-runner/types.js";
 import { createEmbeddedPiSessionEventHandler } from "./pi-embedded-subscribe.handlers.js";
-import { consumePendingToolMediaIntoReply } from "./pi-embedded-subscribe.handlers.messages.js";
+import {
+  consumePendingAssistantReplyDirectivesIntoReply,
+  consumePendingToolMediaIntoReply,
+} from "./pi-embedded-subscribe.handlers.messages.js";
 import type {
   EmbeddedPiSubscribeContext,
   EmbeddedPiSubscribeState,
@@ -97,6 +100,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     lastBlockReplyText: undefined,
     reasoningStreamOpen: false,
     assistantMessageIndex: 0,
+    lastAssistantStreamItemId: undefined,
     lastAssistantTextMessageIndex: -1,
     lastAssistantTextNormalized: undefined,
     lastAssistantTextTrimmed: undefined,
@@ -122,6 +126,8 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     pendingMessagingMediaUrls: new Map(),
     pendingToolMediaUrls: initialPendingToolMediaUrls,
     pendingToolAudioAsVoice: false,
+    pendingToolTrustedLocalMedia: false,
+    pendingAssistantReplyDirectives: undefined,
     deterministicApprovalPromptPending: false,
     deterministicApprovalPromptSent: false,
   };
@@ -182,7 +188,8 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     payload: BlockReplyPayload,
     options?: { assistantMessageIndex?: number },
   ) => {
-    emitBlockReplySafely(consumePendingToolMediaIntoReply(state, payload), options);
+    const withAssistantDirectives = consumePendingAssistantReplyDirectivesIntoReply(state, payload);
+    emitBlockReplySafely(consumePendingToolMediaIntoReply(state, withAssistantDirectives), options);
   };
 
   const resetAssistantMessageState = (nextAssistantTextBaseline: number) => {
@@ -206,10 +213,12 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     state.reasoningStreamOpen = false;
     state.suppressBlockChunks = false;
     state.assistantMessageIndex += 1;
+    state.lastAssistantStreamItemId = undefined;
     state.lastAssistantTextMessageIndex = -1;
     state.lastAssistantTextNormalized = undefined;
     state.lastAssistantTextTrimmed = undefined;
     state.assistantTextBaseline = nextAssistantTextBaseline;
+    state.pendingAssistantReplyDirectives = undefined;
   };
 
   const rememberAssistantText = (text: string) => {
@@ -322,26 +331,26 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     ensureCompactionPromise();
   };
 
+  const resolveCompactionPromiseIfIdle = () => {
+    if (state.pendingCompactionRetry !== 0 || state.compactionInFlight) {
+      return;
+    }
+    state.compactionRetryResolve?.();
+    state.compactionRetryResolve = undefined;
+    state.compactionRetryReject = undefined;
+    state.compactionRetryPromise = null;
+  };
+
   const resolveCompactionRetry = () => {
     if (state.pendingCompactionRetry <= 0) {
       return;
     }
     state.pendingCompactionRetry -= 1;
-    if (state.pendingCompactionRetry === 0 && !state.compactionInFlight) {
-      state.compactionRetryResolve?.();
-      state.compactionRetryResolve = undefined;
-      state.compactionRetryReject = undefined;
-      state.compactionRetryPromise = null;
-    }
+    resolveCompactionPromiseIfIdle();
   };
 
   const maybeResolveCompactionWait = () => {
-    if (state.pendingCompactionRetry === 0 && !state.compactionInFlight) {
-      state.compactionRetryResolve?.();
-      state.compactionRetryResolve = undefined;
-      state.compactionRetryReject = undefined;
-      state.compactionRetryPromise = null;
-    }
+    resolveCompactionPromiseIfIdle();
   };
   const recordAssistantUsage = (usageLike: unknown) => {
     const usage = normalizeUsage((usageLike ?? undefined) as UsageLike | undefined);
@@ -413,7 +422,12 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
       return;
     }
     const { text: cleanedText, mediaUrls } = parseReplyDirectives(message);
-    const filteredMediaUrls = filterToolResultMediaUrls(toolName, mediaUrls ?? [], result);
+    const filteredMediaUrls = filterToolResultMediaUrls(
+      toolName,
+      mediaUrls ?? [],
+      result,
+      params.builtinToolNames,
+    );
     if (!cleanedText && filteredMediaUrls.length === 0) {
       return;
     }
@@ -702,6 +716,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     state.pendingMessagingMediaUrls.clear();
     state.pendingToolMediaUrls = [];
     state.pendingToolAudioAsVoice = false;
+    state.pendingAssistantReplyDirectives = undefined;
     state.deterministicApprovalPromptPending = false;
     state.deterministicApprovalPromptSent = false;
     state.replayState = mergeEmbeddedRunReplayState(state.replayState, params.initialReplayState);
@@ -722,6 +737,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     blockChunking,
     blockChunker,
     hookRunner: params.hookRunner,
+    builtinToolNames: params.builtinToolNames,
     noteLastAssistant,
     shouldEmitToolResult,
     shouldEmitToolOutput,

@@ -1,6 +1,7 @@
 import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
 import { describe, expect, it } from "vitest";
 import type { ReplyPayload } from "../../auto-reply/types.js";
+import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { typedCases } from "../../test-utils/typed-cases.js";
 import {
   createOutboundPayloadPlan,
@@ -13,6 +14,7 @@ import {
   projectOutboundPayloadPlanForMirror,
   projectOutboundPayloadPlanForOutbound,
 } from "./payloads.js";
+import { registerPendingSpawnedChildrenQuery } from "./pending-spawn-query.js";
 
 function resolveMirrorProjection(payloads: readonly ReplyPayload[]) {
   const normalized = normalizeReplyPayloadsForDelivery(payloads);
@@ -61,6 +63,40 @@ describe("normalizeReplyPayloadsForDelivery", () => {
     ).toEqual([
       {
         text: "final answer",
+        mediaUrls: undefined,
+        mediaUrl: undefined,
+        replyToId: undefined,
+        replyToCurrent: false,
+        replyToTag: false,
+        audioAsVoice: false,
+      },
+    ]);
+  });
+
+  it("suppresses relay status placeholder payloads", () => {
+    expect(
+      normalizeReplyPayloadsForDelivery([
+        { text: "No channel reply." },
+        { text: "Replied in-thread." },
+        { text: "Replied in #maintainers." },
+        {
+          text: "Updated [wiki/providers.md](/Users/steipete/.openclaw/workspace/wiki/providers.md:33). No channel reply.",
+        },
+        {
+          text: "Updated [wiki/tools.md] with the rollback failure-mode nuance. No channel reply.",
+        },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("keeps normal payloads that mention wiki without matching relay placeholders", () => {
+    expect(
+      normalizeReplyPayloadsForDelivery([
+        { text: "Please update wiki/tools.md after this ships." },
+      ]),
+    ).toEqual([
+      {
+        text: "Please update wiki/tools.md after this ships.",
         mediaUrls: undefined,
         mediaUrl: undefined,
         replyToId: undefined,
@@ -150,6 +186,172 @@ describe("normalizeReplyPayloadsForDelivery", () => {
         replyToTag: false,
         audioAsVoice: false,
       },
+    ]);
+  });
+
+  it("rewrites bare silent replies for direct conversations when requested", () => {
+    const cfg: OpenClawConfig = {
+      agents: {
+        defaults: {
+          silentReply: {
+            direct: "disallow",
+            group: "allow",
+            internal: "allow",
+          },
+          silentReplyRewrite: {
+            direct: true,
+          },
+        },
+      },
+    };
+
+    const sessionKey = "agent:main:telegram:direct:123";
+    const projected = projectOutboundPayloadPlanForDelivery(
+      createOutboundPayloadPlan([{ text: "NO_REPLY" }], {
+        cfg,
+        sessionKey,
+        surface: "telegram",
+      }),
+    );
+    expect(projected).toHaveLength(1);
+    expect(projected[0]?.text).toEqual(expect.any(String));
+    expect(projected[0]?.text?.trim()).not.toBe("NO_REPLY");
+  });
+
+  it("drops bare silent replies for groups when policy allows silence", () => {
+    const cfg: OpenClawConfig = {
+      agents: {
+        defaults: {
+          silentReply: {
+            direct: "disallow",
+            group: "allow",
+            internal: "allow",
+          },
+          silentReplyRewrite: {
+            direct: true,
+          },
+        },
+      },
+    };
+
+    expect(
+      projectOutboundPayloadPlanForDelivery(
+        createOutboundPayloadPlan([{ text: "NO_REPLY" }], {
+          cfg,
+          sessionKey: "agent:main:telegram:group:123",
+          surface: "telegram",
+        }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("does not add rewrite chatter when visible content is already being delivered", () => {
+    const cfg: OpenClawConfig = {
+      agents: {
+        defaults: {
+          silentReply: {
+            direct: "disallow",
+            group: "allow",
+            internal: "allow",
+          },
+          silentReplyRewrite: {
+            direct: true,
+          },
+        },
+      },
+    };
+
+    expect(
+      projectOutboundPayloadPlanForDelivery(
+        createOutboundPayloadPlan([{ text: "NO_REPLY" }, { text: "visible reply" }], {
+          cfg,
+          sessionKey: "agent:main:telegram:direct:123",
+          surface: "telegram",
+        }),
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        text: "visible reply",
+      }),
+    ]);
+  });
+
+  describe("pending spawned subagent children", () => {
+    const cfg: OpenClawConfig = {
+      agents: {
+        defaults: {
+          silentReply: { direct: "disallow", group: "allow", internal: "allow" },
+          silentReplyRewrite: { direct: true },
+        },
+      },
+    };
+    const planSilent = (sessionKey: string, hasPendingSpawnedChildren?: boolean) =>
+      projectOutboundPayloadPlanForDelivery(
+        createOutboundPayloadPlan([{ text: "NO_REPLY" }], {
+          cfg,
+          sessionKey,
+          surface: "telegram",
+          hasPendingSpawnedChildren,
+        }),
+      );
+
+    it("drops bare silent replies when the context flag is set", () => {
+      expect(planSilent("agent:main:telegram:direct:123", true)).toEqual([]);
+    });
+
+    it("drops bare silent replies via the registered runtime query", () => {
+      const sessionKey = "agent:main:telegram:direct:456";
+      const previousQuery = registerPendingSpawnedChildrenQuery((key) => key === sessionKey);
+      try {
+        expect(planSilent(sessionKey)).toEqual([]);
+      } finally {
+        registerPendingSpawnedChildrenQuery(previousQuery);
+      }
+    });
+
+    it("falls back to the rewrite path when the query throws", () => {
+      const previousQuery = registerPendingSpawnedChildrenQuery(() => {
+        throw new Error("registry unavailable");
+      });
+      try {
+        const delivery = planSilent("agent:main:telegram:direct:789");
+        expect(delivery).toHaveLength(1);
+        expect(delivery[0]?.text).toBeTruthy();
+        expect(delivery[0]?.text).not.toMatch(/NO_REPLY/i);
+      } finally {
+        registerPendingSpawnedChildrenQuery(previousQuery);
+      }
+    });
+  });
+
+  it("keeps bare NO_REPLY visible when silence is disallowed but rewrite is off", () => {
+    const cfg: OpenClawConfig = {
+      agents: {
+        defaults: {
+          silentReply: {
+            direct: "disallow",
+            group: "allow",
+            internal: "allow",
+          },
+          silentReplyRewrite: {
+            direct: false,
+          },
+        },
+      },
+    };
+
+    expect(
+      projectOutboundPayloadPlanForDelivery(
+        createOutboundPayloadPlan([{ text: "NO_REPLY" }], {
+          cfg,
+          sessionKey: "agent:main:telegram:direct:123",
+          surface: "telegram",
+        }),
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        text: "NO_REPLY",
+      }),
     ]);
   });
 

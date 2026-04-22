@@ -25,14 +25,13 @@ import {
 import { LiveSessionModelSwitchError } from "./live-model-switch-error.js";
 import { logModelFallbackDecision } from "./model-fallback-observation.js";
 import type { FallbackAttempt, ModelCandidate } from "./model-fallback.types.js";
+import { modelKey, normalizeModelRef } from "./model-selection-normalize.js";
 import {
   buildConfiguredAllowlistKeys,
   buildModelAliasIndex,
-  modelKey,
-  normalizeModelRef,
   resolveConfiguredModelRef,
   resolveModelRefFromString,
-} from "./model-selection.js";
+} from "./model-selection-resolve.js";
 import { isLikelyContextOverflowError } from "./pi-embedded-helpers/errors.js";
 import type { FailoverReason } from "./pi-embedded-helpers/types.js";
 
@@ -374,6 +373,25 @@ function resolveImageFallbackCandidates(params: {
   }
 
   return candidates;
+}
+
+function resolveImageFallbackDefaultProvider(cfg: OpenClawConfig | undefined): string {
+  const configuredPrimary = resolveAgentModelPrimaryValue(cfg?.agents?.defaults?.imageModel);
+  if (configuredPrimary?.trim()) {
+    const aliasIndex = buildModelAliasIndex({
+      cfg: cfg ?? {},
+      defaultProvider: DEFAULT_PROVIDER,
+    });
+    const resolved = resolveModelRefFromString({
+      raw: configuredPrimary,
+      defaultProvider: DEFAULT_PROVIDER,
+      aliasIndex,
+    });
+    if (resolved?.ref.provider) {
+      return resolved.ref.provider;
+    }
+  }
+  return DEFAULT_PROVIDER;
 }
 
 function resolveFallbackCandidates(params: {
@@ -923,7 +941,7 @@ export async function runWithImageModelFallback<T>(params: {
 }): Promise<ModelFallbackRunResult<T>> {
   const candidates = resolveImageFallbackCandidates({
     cfg: params.cfg,
-    defaultProvider: DEFAULT_PROVIDER,
+    defaultProvider: resolveImageFallbackDefaultProvider(params.cfg),
     modelOverride: params.modelOverride,
   });
   if (candidates.length === 0) {

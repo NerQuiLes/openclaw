@@ -8,6 +8,7 @@ import { createBrowserRouteApp, createBrowserRouteResponse } from "./test-helper
 const routeState = existingSessionRouteState;
 
 const chromeMcpMocks = vi.hoisted(() => ({
+  clickChromeMcpElement: vi.fn(async () => {}),
   evaluateChromeMcpScript: vi.fn(
     async (_params: { profileName: string; targetId: string; fn: string }) => true,
   ),
@@ -21,8 +22,14 @@ const chromeMcpMocks = vi.hoisted(() => ({
   })),
 }));
 
+const navigationGuardMocks = vi.hoisted(() => ({
+  assertBrowserNavigationAllowed: vi.fn(async () => {}),
+  assertBrowserNavigationResultAllowed: vi.fn(async () => {}),
+  withBrowserNavigationPolicy: vi.fn((ssrfPolicy?: unknown) => (ssrfPolicy ? { ssrfPolicy } : {})),
+}));
+
 vi.mock("../chrome-mcp.js", () => ({
-  clickChromeMcpElement: vi.fn(async () => {}),
+  clickChromeMcpElement: chromeMcpMocks.clickChromeMcpElement,
   closeChromeMcpTab: vi.fn(async () => {}),
   dragChromeMcpElement: vi.fn(async () => {}),
   evaluateChromeMcpScript: chromeMcpMocks.evaluateChromeMcpScript,
@@ -42,9 +49,9 @@ vi.mock("../cdp.js", () => ({
 }));
 
 vi.mock("../navigation-guard.js", () => ({
-  assertBrowserNavigationAllowed: vi.fn(async () => {}),
-  assertBrowserNavigationResultAllowed: vi.fn(async () => {}),
-  withBrowserNavigationPolicy: vi.fn(() => ({})),
+  assertBrowserNavigationAllowed: navigationGuardMocks.assertBrowserNavigationAllowed,
+  assertBrowserNavigationResultAllowed: navigationGuardMocks.assertBrowserNavigationResultAllowed,
+  withBrowserNavigationPolicy: navigationGuardMocks.withBrowserNavigationPolicy,
 }));
 
 vi.mock("../screenshot.js", () => ({
@@ -66,20 +73,20 @@ vi.mock("./agent.shared.js", () => createExistingSessionAgentSharedModule());
 const { registerBrowserAgentActRoutes } = await import("./agent.act.js");
 const { registerBrowserAgentSnapshotRoutes } = await import("./agent.snapshot.js");
 
-function getSnapshotGetHandler() {
+function getSnapshotGetHandler(ssrfPolicy?: unknown) {
   const { app, getHandlers } = createBrowserRouteApp();
   registerBrowserAgentSnapshotRoutes(app, {
-    state: () => ({ resolved: { ssrfPolicy: undefined } }),
+    state: () => ({ resolved: { ssrfPolicy } }),
   } as never);
   const handler = getHandlers.get("/snapshot");
   expect(handler).toBeTypeOf("function");
   return handler;
 }
 
-function getSnapshotPostHandler() {
+function getSnapshotPostHandler(ssrfPolicy?: unknown) {
   const { app, postHandlers } = createBrowserRouteApp();
   registerBrowserAgentSnapshotRoutes(app, {
-    state: () => ({ resolved: { ssrfPolicy: undefined } }),
+    state: () => ({ resolved: { ssrfPolicy } }),
   } as never);
   const handler = postHandlers.get("/screenshot");
   expect(handler).toBeTypeOf("function");
@@ -99,10 +106,15 @@ function getActPostHandler() {
 describe("existing-session browser routes", () => {
   beforeEach(() => {
     routeState.profileCtx.ensureTabAvailable.mockClear();
+    routeState.profileCtx.listTabs.mockClear();
+    chromeMcpMocks.clickChromeMcpElement.mockClear();
     chromeMcpMocks.evaluateChromeMcpScript.mockReset();
     chromeMcpMocks.navigateChromeMcpPage.mockClear();
     chromeMcpMocks.takeChromeMcpScreenshot.mockClear();
     chromeMcpMocks.takeChromeMcpSnapshot.mockClear();
+    navigationGuardMocks.assertBrowserNavigationAllowed.mockClear();
+    navigationGuardMocks.assertBrowserNavigationResultAllowed.mockClear();
+    navigationGuardMocks.withBrowserNavigationPolicy.mockClear();
     chromeMcpMocks.evaluateChromeMcpScript
       .mockResolvedValueOnce({ labels: 1, skipped: 0 } as never)
       .mockResolvedValueOnce(true);
@@ -125,6 +137,7 @@ describe("existing-session browser routes", () => {
       profileName: "chrome-live",
       targetId: "7",
     });
+    expect(navigationGuardMocks.assertBrowserNavigationResultAllowed).not.toHaveBeenCalled();
     expect(chromeMcpMocks.takeChromeMcpScreenshot).toHaveBeenCalled();
   });
 
@@ -152,6 +165,38 @@ describe("existing-session browser routes", () => {
       uid: "btn-1",
       fullPage: false,
       format: "jpeg",
+    });
+    expect(navigationGuardMocks.assertBrowserNavigationResultAllowed).not.toHaveBeenCalled();
+  });
+
+  it("checks existing-session snapshot URL when SSRF policy is configured", async () => {
+    const handler = getSnapshotGetHandler({ allowPrivateNetwork: false });
+    const response = createBrowserRouteResponse();
+    await handler?.({ params: {}, query: { format: "ai" } }, response.res);
+
+    expect(response.statusCode).toBe(200);
+    expect(navigationGuardMocks.assertBrowserNavigationResultAllowed).toHaveBeenCalledWith({
+      url: "https://example.com",
+      ssrfPolicy: { allowPrivateNetwork: false },
+    });
+  });
+
+  it("checks existing-session screenshot URL when SSRF policy is configured", async () => {
+    const handler = getSnapshotPostHandler({ allowPrivateNetwork: false });
+    const response = createBrowserRouteResponse();
+    await handler?.(
+      {
+        params: {},
+        query: {},
+        body: { ref: "btn-1", type: "jpeg" },
+      },
+      response.res,
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(navigationGuardMocks.assertBrowserNavigationResultAllowed).toHaveBeenCalledWith({
+      url: "https://example.com",
+      ssrfPolicy: { allowPrivateNetwork: false },
     });
   });
 
@@ -217,6 +262,33 @@ describe("existing-session browser routes", () => {
       profileName: "chrome-live",
       targetId: "7",
       fn: "() => window.location.href",
+    });
+  });
+
+  it("forwards click timeoutMs to the existing-session click executor", async () => {
+    const handler = getActPostHandler();
+    const response = createBrowserRouteResponse();
+    const ctrl = new AbortController();
+
+    await handler?.(
+      {
+        params: {},
+        query: {},
+        body: { kind: "click", ref: "btn-1", timeoutMs: 1234 },
+        signal: ctrl.signal,
+      },
+      response.res,
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(chromeMcpMocks.clickChromeMcpElement).toHaveBeenCalledWith({
+      profileName: "chrome-live",
+      userDataDir: undefined,
+      targetId: "7",
+      uid: "btn-1",
+      doubleClick: false,
+      timeoutMs: 1234,
+      signal: ctrl.signal,
     });
   });
 });
