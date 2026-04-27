@@ -843,13 +843,14 @@ export async function compactEmbeddedPiSessionDirect(
         contextTokenBudget: ctxInfo.tokens,
       });
 
-      const { builtInTools, customTools } = splitSdkTools({
+      const { customTools } = splitSdkTools({
         tools: effectiveTools,
         sandboxEnabled: !!sandbox?.enabled,
       });
-      // Pi only accepts built-in Tool[] at session creation time. After the
-      // session registers custom tools, narrow the active tool names against
-      // the exact OpenClaw-managed registrations.
+      // Pi's `tools` option is an allowlist of tool names. Because OpenClaw
+      // registers every executable tool as a custom tool, pass the exact
+      // custom-tool names here; an empty list would disable the runtime tool
+      // registry even though the custom tool definitions are present.
       const sessionToolAllowlist = toSessionToolAllowlist(collectRegisteredToolNames(customTools));
 
       const providerStreamFn = resolveCompactionProviderStream({
@@ -888,7 +889,7 @@ export async function compactEmbeddedPiSessionDirect(
             modelRegistry,
             model: effectiveModel,
             thinkingLevel: mapThinkingLevel(thinkLevel),
-            tools: builtInTools,
+            tools: sessionToolAllowlist,
             customTools,
             sessionManager,
             settingsManager,

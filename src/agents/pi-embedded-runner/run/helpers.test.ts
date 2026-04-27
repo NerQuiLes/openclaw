@@ -61,6 +61,28 @@ describe("resolveFinalAssistantVisibleText", () => {
     expect(resolveFinalAssistantVisibleText(lastAssistant)).toBeUndefined();
   });
 
+  it("returns HEARTBEAT_OK when the final marker is reasoning-only", () => {
+    const lastAssistant = makeAssistantMessage([
+      {
+        type: "thinking",
+        thinking: "HeARTBEAT_OK",
+      },
+    ]);
+
+    expect(resolveFinalAssistantVisibleText(lastAssistant)).toBe("HEARTBEAT_OK");
+  });
+
+  it("does not expose arbitrary reasoning-only content", () => {
+    const lastAssistant = makeAssistantMessage([
+      {
+        type: "thinking",
+        thinking: "internal reasoning",
+      },
+    ]);
+
+    expect(resolveFinalAssistantVisibleText(lastAssistant)).toBeUndefined();
+  });
+
   it("preserves raw final answer text without visible-text sanitization", () => {
     const lastAssistant = makeAssistantMessage([
       {

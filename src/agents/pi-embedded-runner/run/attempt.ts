@@ -1067,7 +1067,7 @@ export async function runEmbeddedAttempt(
       // Get hook runner early so it's available when creating tools
       const hookRunner = getGlobalHookRunner();
 
-      const { builtInTools, customTools } = splitSdkTools({
+      const { customTools } = splitSdkTools({
         tools: effectiveTools,
         sandboxEnabled: !!sandbox?.enabled,
       });
@@ -1126,10 +1126,10 @@ export async function runEmbeddedAttempt(
         : [];
 
       const allCustomTools = [...customTools, ...clientToolDefs];
-      // Pi only accepts built-in Tool[] at session creation time. After the
-      // session registers custom tools, narrow the active tool names against
-      // the exact OpenClaw-managed registrations so client-provided names do
-      // not broaden the prompt/runtime boundary.
+      // Pi's `tools` option is an allowlist of tool names. Because OpenClaw
+      // registers every executable tool as a custom tool, pass the exact
+      // custom-tool names here; an empty list would disable the runtime tool
+      // registry even though the custom tool definitions are present.
       const sessionToolAllowlist = toSessionToolAllowlist(
         collectRegisteredToolNames(allCustomTools),
       );
@@ -1146,7 +1146,7 @@ export async function runEmbeddedAttempt(
           modelRegistry: params.modelRegistry,
           model: params.model,
           thinkingLevel: mapThinkingLevel(params.thinkLevel),
-          tools: builtInTools,
+          tools: sessionToolAllowlist,
           customTools: allCustomTools,
           sessionManager,
           settingsManager,

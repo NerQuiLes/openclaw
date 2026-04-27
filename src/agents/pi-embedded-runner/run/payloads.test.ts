@@ -65,6 +65,38 @@ describe("buildEmbeddedRunPayloads tool-error warnings", () => {
     expectSinglePayloadText(payloads, "Done.");
   });
 
+  it("surfaces HEARTBEAT_OK when a provider returns the marker as reasoning-only content", () => {
+    const payloads = buildPayloads({
+      lastAssistant: {
+        role: "assistant",
+        stopReason: "stop",
+        content: [
+          {
+            type: "thinking",
+            thinking: "HeARTBEAT_OK",
+          },
+        ],
+      } as AssistantMessage,
+    });
+
+    expectSinglePayloadText(payloads, "HEARTBEAT_OK");
+  });
+
+  it("does not surface arbitrary reasoning-only content as a reply", () => {
+    expectNoPayloads({
+      lastAssistant: {
+        role: "assistant",
+        stopReason: "stop",
+        content: [
+          {
+            type: "thinking",
+            thinking: "internal reasoning",
+          },
+        ],
+      } as AssistantMessage,
+    });
+  });
+
   it("suppresses exec tool errors when verbose mode is off", () => {
     expectNoPayloads({
       lastToolError: { toolName: "exec", error: "command failed" },

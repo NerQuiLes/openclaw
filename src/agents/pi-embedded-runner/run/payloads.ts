@@ -43,6 +43,15 @@ const RECOVERABLE_TOOL_ERROR_KEYWORDS = [
   "requires",
 ] as const;
 
+function extractHeartbeatOkFromThinkingOnly(lastAssistant: AssistantMessage | undefined): string {
+  if (!lastAssistant || extractAssistantVisibleText(lastAssistant).trim()) {
+    return "";
+  }
+  return extractAssistantThinking(lastAssistant).trim().toUpperCase() === "HEARTBEAT_OK"
+    ? "HEARTBEAT_OK"
+    : "";
+}
+
 function isRecoverableToolError(error: string | undefined): boolean {
   const errorLower = normalizeOptionalLowercaseString(error) ?? "";
   return RECOVERABLE_TOOL_ERROR_KEYWORDS.some((keyword) => errorLower.includes(keyword));
@@ -218,7 +227,8 @@ export function buildEmbeddedRunPayloads(params: {
   }
 
   const fallbackAnswerText = params.lastAssistant
-    ? extractAssistantVisibleText(params.lastAssistant)
+    ? extractAssistantVisibleText(params.lastAssistant) ||
+      extractHeartbeatOkFromThinkingOnly(params.lastAssistant)
     : "";
   const shouldSuppressRawErrorText = (text: string) => {
     if (!lastAssistantErrored) {

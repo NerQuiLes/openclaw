@@ -761,6 +761,45 @@ describe("runEmbeddedPiAgent incomplete-turn safety", () => {
     expect(incompleteTurnText).toBeNull();
   });
 
+  it("treats reasoning-only NO_REPLY as a deliberate silent assistant reply", () => {
+    const lastAssistant = {
+      role: "assistant",
+      stopReason: "stop",
+      provider: "openai",
+      model: "gpt-5.4",
+      content: [
+        {
+          type: "thinking",
+          thinking: "No_RePlY",
+          thinkingSignature: JSON.stringify({ id: "rs_no_reply", type: "reasoning" }),
+        },
+      ],
+    } as unknown as EmbeddedRunAttemptResult["lastAssistant"];
+    const attempt = makeAttemptResult({
+      assistantTexts: [],
+      currentAttemptAssistant: lastAssistant,
+      lastAssistant,
+    });
+
+    expect(
+      resolveIncompleteTurnPayloadText({
+        payloadCount: 0,
+        aborted: false,
+        timedOut: false,
+        attempt,
+      }),
+    ).toBeNull();
+    expect(
+      resolveReasoningOnlyRetryInstruction({
+        provider: "openai",
+        modelId: "gpt-5.4",
+        aborted: false,
+        timedOut: false,
+        attempt,
+      }),
+    ).toBeNull();
+  });
+
   it("does not retry reasoning-only GPT turns after side effects", () => {
     const retryInstruction = resolveReasoningOnlyRetryInstruction({
       provider: "openai",

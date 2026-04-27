@@ -2,7 +2,7 @@ import type { AssistantMessage } from "@mariozechner/pi-ai";
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
 import { generateSecureToken } from "../../../infra/secure-random.js";
 import { extractAssistantTextForPhase } from "../../../shared/chat-message-content.js";
-import { extractAssistantVisibleText } from "../../pi-embedded-utils.js";
+import { extractAssistantThinking, extractAssistantVisibleText } from "../../pi-embedded-utils.js";
 import { derivePromptTokens, normalizeUsage } from "../../usage.js";
 import type { EmbeddedPiAgentMeta } from "../types.js";
 import { toLastCallUsage, toNormalizedUsage, type UsageAccumulator } from "../usage-accumulator.js";
@@ -152,7 +152,12 @@ export function resolveFinalAssistantVisibleText(
     return undefined;
   }
   const visibleText = extractAssistantVisibleText(lastAssistant).trim();
-  return visibleText || undefined;
+  if (visibleText) {
+    return visibleText;
+  }
+  return extractAssistantThinking(lastAssistant).trim().toUpperCase() === "HEARTBEAT_OK"
+    ? "HEARTBEAT_OK"
+    : undefined;
 }
 
 export function resolveFinalAssistantRawText(

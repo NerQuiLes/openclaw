@@ -1,8 +1,10 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AssistantMessage } from "@mariozechner/pi-ai";
 import { isSilentReplyPayloadText, SILENT_REPLY_TOKEN } from "../../../auto-reply/tokens.js";
 import type { EmbeddedPiExecutionContract } from "../../../config/types.agent-defaults.js";
 import { normalizeLowercaseStringOrEmpty } from "../../../shared/string-coerce.js";
 import { isStrictAgenticSupportedProviderModel } from "../../execution-contract.js";
+import { extractAssistantThinking } from "../../pi-embedded-utils.js";
 import { isLikelyMutatingToolName } from "../../tool-mutation.js";
 import { assessLastAssistantMessage } from "../thinking.js";
 import type { EmbeddedRunLivenessState } from "../types.js";
@@ -156,6 +158,14 @@ export function buildAttemptReplayMetadata(
   };
 }
 
+function extractAssistantThinkingIfPresent(message: AgentMessage | undefined | null): string {
+  return message?.role === "assistant" ? extractAssistantThinking(message as AssistantMessage) : "";
+}
+
+function isThinkingOnlySilentReply(message: AgentMessage | undefined | null): boolean {
+  return extractAssistantThinkingIfPresent(message).trim().toUpperCase() === SILENT_REPLY_TOKEN;
+}
+
 export function resolveIncompleteTurnPayloadText(params: {
   payloadCount: number;
   aborted: boolean;
@@ -174,7 +184,12 @@ export function resolveIncompleteTurnPayloadText(params: {
     return null;
   }
 
-  if (hasOnlySilentAssistantReply(params.attempt.assistantTexts)) {
+  if (
+    hasDeliberateSilentAssistantReply({
+      assistantTexts: params.attempt.assistantTexts,
+      assistant: params.attempt.currentAttemptAssistant ?? params.attempt.lastAssistant,
+    })
+  ) {
     return null;
   }
 
@@ -202,6 +217,16 @@ export function resolveIncompleteTurnPayloadText(params: {
   return params.attempt.replayMetadata.hadPotentialSideEffects
     ? "⚠️ Agent couldn't generate a response. Note: some tool actions may have already been executed — please verify before retrying."
     : "⚠️ Agent couldn't generate a response. Please try again.";
+}
+
+function hasDeliberateSilentAssistantReply(params: {
+  assistantTexts: readonly string[];
+  assistant?: AgentMessage | null;
+}): boolean {
+  if (isThinkingOnlySilentReply(params.assistant)) {
+    return true;
+  }
+  return hasOnlySilentAssistantReply(params.assistantTexts);
 }
 
 function hasOnlySilentAssistantReply(assistantTexts: readonly string[]): boolean {
@@ -331,6 +356,9 @@ export function resolveReasoningOnlyRetryInstruction(params: {
     return null;
   }
   if (assistant?.stopReason === "error") {
+    return null;
+  }
+  if (isThinkingOnlySilentReply(assistant)) {
     return null;
   }
   if (!isReasoningOnlyAssistantTurn(assistant)) {
