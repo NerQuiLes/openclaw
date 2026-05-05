@@ -798,8 +798,8 @@ importers:
   extensions/kairos-bridge:
     dependencies:
       '@sinclair/typebox':
-        specifier: 0.34.49
-        version: 0.34.49
+        specifier: 0.34.47
+        version: 0.34.47
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -3871,6 +3871,9 @@ packages:
 
   '@silvia-odwyer/photon-node@0.3.4':
     resolution: {integrity: sha512-bnly4BKB3KDTFxrUIcgCLbaeVVS8lrAkri1pEzskpmxu9MdfGQTy8b8EgcD83ywD3RPMsIulY8xJH5Awa+t9fA==}
+
+  '@sinclair/typebox@0.34.47':
+    resolution: {integrity: sha512-ZGIBQ+XDvO5JQku9wmwtabcVTHJsgSWAHYtVuM9pBNNR5E88v6Jcj/llpmsjivig5X8A8HHOb4/mbEKPS5EvAw==}
 
   '@slack/bolt@4.7.2':
     resolution: {integrity: sha512-ALHtaS2iaP2WAWgX08yXsoCxEDitC6AqZs26ot6smXJQzBFMM4slVP+w3blLwzUV551xZ/+9RlBmWHsZDJJ5HA==}
@@ -10532,6 +10535,8 @@ snapshots:
   '@shikijs/vscode-textmate@10.0.2': {}
 
   '@silvia-odwyer/photon-node@0.3.4': {}
+
+  '@sinclair/typebox@0.34.47': {}
 
   '@slack/bolt@4.7.2(@types/express@5.0.6)':
     dependencies:

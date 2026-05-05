@@ -1,10 +1,5 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
-import { isSilentReplyPayloadText, SILENT_REPLY_TOKEN } from "../../../auto-reply/tokens.js";
-import type { EmbeddedPiExecutionContract } from "../../../config/types.agent-defaults.js";
-import { normalizeLowercaseStringOrEmpty } from "../../../shared/string-coerce.js";
-import { isStrictAgenticSupportedProviderModel } from "../../execution-contract.js";
-import { extractAssistantThinking } from "../../pi-embedded-utils.js";
 import {
   isSilentReplyPayloadText,
   isSilentReplyText,
@@ -17,6 +12,7 @@ import {
   isStrictAgenticSupportedProviderModel,
   stripProviderPrefix,
 } from "../../execution-contract.js";
+import { extractAssistantThinking } from "../../pi-embedded-utils.js";
 import { isLikelyMutatingToolName } from "../../tool-mutation.js";
 import {
   hasCommittedMessagingToolDeliveryEvidence,
@@ -225,6 +221,8 @@ function extractAssistantThinkingIfPresent(message: AgentMessage | undefined | n
 
 function isThinkingOnlySilentReply(message: AgentMessage | undefined | null): boolean {
   return extractAssistantThinkingIfPresent(message).trim().toUpperCase() === SILENT_REPLY_TOKEN;
+}
+
 export function resolveAttemptReplayMetadata(attempt: {
   replayMetadata?: EmbeddedRunAttemptResult["replayMetadata"] | null;
 }): EmbeddedRunAttemptResult["replayMetadata"] {
@@ -305,8 +303,6 @@ function hasDeliberateSilentAssistantReply(params: {
   return hasOnlySilentAssistantReply(params.assistantTexts);
 }
 
-function hasOnlySilentAssistantReply(assistantTexts: readonly string[]): boolean {
-  const nonEmptyTexts = assistantTexts.filter((text) => text.trim().length > 0);
 function joinAssistantTexts(assistantTexts?: readonly string[]): string {
   return (assistantTexts ?? []).join("\n\n").trim();
 }
