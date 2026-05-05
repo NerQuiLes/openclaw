@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { BUNDLED_PLUGIN_TEST_GLOB, bundledPluginFile } from "openclaw/plugin-sdk/test-fixtures";
 import { describe, expect, it } from "vitest";
-import { BUNDLED_PLUGIN_TEST_GLOB, bundledPluginFile } from "./helpers/bundled-plugin-paths.js";
 import { cleanupTempDirs, makeTempDir } from "./helpers/temp-dir.js";
 import { normalizeConfigPath, normalizeConfigPaths } from "./helpers/vitest-config-paths.js";
 import { createAcpVitestConfig } from "./vitest/vitest.acp.config.ts";
@@ -59,6 +59,7 @@ import { createRuntimeConfigVitestConfig } from "./vitest/vitest.runtime-config.
 import { createScopedVitestConfig, resolveVitestIsolation } from "./vitest/vitest.scoped-config.ts";
 import { createSecretsVitestConfig } from "./vitest/vitest.secrets.config.ts";
 import { createSharedCoreVitestConfig } from "./vitest/vitest.shared-core.config.ts";
+import { sharedVitestConfig } from "./vitest/vitest.shared.config.ts";
 import { createTasksVitestConfig } from "./vitest/vitest.tasks.config.ts";
 import { createToolingVitestConfig } from "./vitest/vitest.tooling.config.ts";
 import { createTuiVitestConfig } from "./vitest/vitest.tui.config.ts";
@@ -68,6 +69,7 @@ import { createUtilsVitestConfig } from "./vitest/vitest.utils.config.ts";
 import { createWizardVitestConfig } from "./vitest/vitest.wizard.config.ts";
 
 const EXTENSIONS_CHANNEL_GLOB = ["extensions", "channel", "**"].join("/");
+const PRIVATE_PLUGIN_SDK_SUBPATHS = ["qa-lab", "qa-runtime"] as const;
 
 function bundledExcludePatternCouldMatchFile(pattern: string, file: string): boolean {
   if (pattern === file) {
@@ -81,6 +83,28 @@ function bundledExcludePatternCouldMatchFile(pattern: string, file: string): boo
 }
 
 describe("resolveVitestIsolation", () => {
+  it("aliases private QA plugin SDK subpaths for source tests only", () => {
+    expect(sharedVitestConfig.resolve.alias).toEqual(
+      expect.arrayContaining(
+        PRIVATE_PLUGIN_SDK_SUBPATHS.map((subpath) =>
+          expect.objectContaining({
+            find: `openclaw/plugin-sdk/${subpath}`,
+            replacement: path.join(process.cwd(), "src", "plugin-sdk", `${subpath}.ts`),
+          }),
+        ),
+      ),
+    );
+    expect(sharedVitestConfig.resolve.alias).not.toEqual(
+      expect.arrayContaining(
+        PRIVATE_PLUGIN_SDK_SUBPATHS.map((subpath) =>
+          expect.objectContaining({
+            find: `@openclaw/plugin-sdk/${subpath}`,
+          }),
+        ),
+      ),
+    );
+  });
+
   it("defaults shared scoped configs to the non-isolated runner", () => {
     expect(resolveVitestIsolation({})).toBe(false);
   });
@@ -291,15 +315,21 @@ describe("scoped vitest configs", () => {
       expect(normalizeConfigPath(config.test?.runner)).toBe("test/non-isolated-runner.ts");
     }
 
-    for (const config of [defaultGatewayConfig, defaultCommandsConfig, defaultAgentsConfig]) {
+    for (const config of [defaultGatewayConfig, defaultAgentsConfig]) {
       expect(config.test?.pool).toBe("threads");
       expect(config.test?.isolate).toBe(false);
       expect(normalizeConfigPath(config.test?.runner)).toBe("test/non-isolated-runner.ts");
     }
 
+    expect(defaultCommandsConfig.test?.pool).toBe("forks");
+    expect(defaultCommandsConfig.test?.isolate).toBe(false);
+    expect(normalizeConfigPath(defaultCommandsConfig.test?.runner)).toBe(
+      "test/non-isolated-runner.ts",
+    );
+
     expect(defaultUiConfig.test?.pool).toBe("threads");
-    expect(defaultUiConfig.test?.isolate).toBe(true);
-    expect(defaultUiConfig.test?.runner).toBeUndefined();
+    expect(defaultUiConfig.test?.isolate).toBe(false);
+    expect(normalizeConfigPath(defaultUiConfig.test?.runner)).toBe("test/non-isolated-runner.ts");
   });
 
   it("keeps the process lane off the openclaw runtime setup", () => {
@@ -321,7 +351,7 @@ describe("scoped vitest configs", () => {
   });
 
   it("keeps the broad agents lane on shared file parallelism", () => {
-    expect(defaultAgentsConfig.test?.fileParallelism).toBe(true);
+    expect(defaultAgentsConfig.test?.fileParallelism).toBe(sharedVitestConfig.test.fileParallelism);
   });
 
   it("keeps selected plugin-sdk and commands light lanes off the openclaw runtime setup", () => {
@@ -730,11 +760,10 @@ describe("scoped vitest configs", () => {
 
   it("keeps tooling tests in their own lane", () => {
     expect(defaultToolingConfig.test?.include).toEqual(
-      expect.arrayContaining([
-        "test/**/*.test.ts",
-        "src/scripts/**/*.test.ts",
-        "src/config/doc-baseline.integration.test.ts",
-      ]),
+      expect.arrayContaining(["test/**/*.test.ts", "src/scripts/**/*.test.ts"]),
+    );
+    expect(defaultToolingConfig.test?.include).not.toContain(
+      "src/config/doc-baseline.integration.test.ts",
     );
   });
 
@@ -770,8 +799,9 @@ describe("scoped vitest configs", () => {
   });
 
   it("normalizes ui include patterns relative to the scoped dir", () => {
-    expect(defaultUiConfig.test?.dir).toBe(path.join(process.cwd(), "ui", "src", "ui"));
-    expect(defaultUiConfig.test?.include).toEqual(["**/*.test.ts"]);
+    expect(defaultUiConfig.test?.dir).toBe(process.cwd());
+    expect(defaultUiConfig.test?.include).toEqual(["ui/src/**/*.test.ts"]);
+    expect(defaultUiConfig.test?.exclude).toContain("ui/src/ui/app-chat.test.ts");
   });
 
   it("normalizes utils include patterns relative to the scoped dir", () => {

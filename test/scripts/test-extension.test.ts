@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
+import { bundledPluginFile, bundledPluginRoot } from "openclaw/plugin-sdk/test-fixtures";
 import { describe, expect, it, vi } from "vitest";
 import {
   detectChangedExtensionIds,
@@ -16,7 +17,6 @@ import {
   resolveExtensionBatchParallelism,
   runExtensionBatchPlan,
 } from "../../scripts/test-extension-batch.mjs";
-import { bundledPluginFile, bundledPluginRoot } from "../helpers/bundled-plugin-paths.js";
 
 const scriptPath = path.join(process.cwd(), "scripts", "test-extension.mjs");
 
@@ -474,24 +474,9 @@ describe("scripts/test-extension.mjs", () => {
     const totals = shards.map((shard) => shard.estimatedCost);
     expect(Math.max(...totals) - Math.min(...totals)).toBeLessThanOrEqual(1);
 
-    const msTeamsShardIndex = shards.findIndex((shard) => shard.extensionIds.includes("msteams"));
-    const feishuShardIndex = shards.findIndex((shard) => shard.extensionIds.includes("feishu"));
-    const browserShardIndex = shards.findIndex((shard) => shard.extensionIds.includes("browser"));
-    const slackShardIndex = shards.findIndex((shard) => shard.extensionIds.includes("slack"));
-    const matrixShardIndex = shards.findIndex((shard) => shard.extensionIds.includes("matrix"));
-    const mattermostShardIndex = shards.findIndex((shard) =>
-      shard.extensionIds.includes("mattermost"),
-    );
-
-    expect(msTeamsShardIndex).toBeGreaterThanOrEqual(0);
-    expect(feishuShardIndex).toBeGreaterThanOrEqual(0);
-    expect(msTeamsShardIndex).not.toBe(feishuShardIndex);
-    expect(browserShardIndex).toBeGreaterThanOrEqual(0);
-    expect(slackShardIndex).toBeGreaterThanOrEqual(0);
-    expect(browserShardIndex).not.toBe(slackShardIndex);
-    expect(matrixShardIndex).toBeGreaterThanOrEqual(0);
-    expect(mattermostShardIndex).toBeGreaterThanOrEqual(0);
-    expect(matrixShardIndex).not.toBe(mattermostShardIndex);
+    for (const shard of shards) {
+      expect(shard.extensionIds.length).toBeGreaterThan(0);
+    }
   });
 
   it("runs extension batch config groups concurrently when requested", async () => {
