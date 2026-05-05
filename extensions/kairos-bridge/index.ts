@@ -81,7 +81,7 @@ function getApiKey(): string {
 
 /**
  * Detecta el agent_id basado en el BOT_ID de OpenClaw.
- * Kai: B0ADBQ31PJA, Cangrejo: B09REUFF6CS
+ * Kai: B0ADBQ31PJA, Cangrejo: B09REUFF6CS, Hermes: B0AVA3HFVEE
  */
 function getAgentId(): string {
   const botId = process.env.OPENCLAW_BOT_ID?.trim();
@@ -90,6 +90,9 @@ function getAgentId(): string {
   }
   if (botId === "B09REUFF6CS") {
     return "cangrejo";
+  }
+  if (botId === "B0AVA3HFVEE") {
+    return "hermes";
   }
   return "unknown";
 }
