@@ -1,0 +1,50 @@
+{
+  "id": "kairos-wake-bridge",
+  "activation": {
+    "onStartup": true
+  },
+  "name": "Kairos-Wake Bridge",
+  "description": "Delegate tasks to Kairos-Wake wakers. Create sessions, send messages, and receive responses from waker agents running on the Kairos-Wake daemon.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": { "type": "boolean" },
+      "daemonUrl": {
+        "type": "string",
+        "description": "Kairos-Wake daemon URL (default: http://127.0.0.1:19900)"
+      },
+      "authToken": {
+        "type": "string",
+        "description": "Bearer token for Kairos-Wake API authentication"
+      },
+      "defaultWaker": {
+        "type": "string",
+        "description": "Default waker ID to use when none is specified"
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "minimum": 5000,
+        "maximum": 300000,
+        "description": "Request timeout in milliseconds (default: 120000)"
+      }
+    }
+  },
+  "contracts": {
+    "tools": ["kw_list_wakers", "kw_send_message", "kw_get_response"]
+  },
+  "uiHints": {
+    "enabled": {
+      "label": "Enable Kairos-Wake Bridge",
+      "help": "Globally enable or disable the Kairos-Wake bridge tools."
+    },
+    "daemonUrl": {
+      "label": "Daemon URL",
+      "help": "URL of the Kairos-Wake daemon. Defaults to http://127.0.0.1:19900."
+    },
+    "defaultWaker": {
+      "label": "Default Waker",
+      "help": "Waker ID to use when the agent does not specify one explicitly."
+    }
+  }
+}
