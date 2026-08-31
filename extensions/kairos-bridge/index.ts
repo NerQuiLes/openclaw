@@ -4,7 +4,7 @@
  * Requires KAIROS_BRIDGE_URL (default http://mcp_gateway:3000) and MOLTBOT_API_KEY in env.
  */
 
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import { getSessionManager, resetSessionManager } from "./session-manager.js";
 
 const DEFAULT_BASE_URL = "http://aact-server:9999";
